@@ -1,0 +1,3 @@
+flask
+openai
+mysql-connector-python

@@ -47,10 +47,8 @@ def fetch_trip_details():
 def get_gpt_reply(prompt_message):
     url = f"https://{rapidapi_host}/chat"
     payload = {
-    "messages": [
-        { "role": "user", "content": prompt_message }
-    ]
-    }
+    "query": prompt_message
+}
 
     headers = {
         "content-type": "application/json",

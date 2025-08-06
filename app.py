@@ -5,9 +5,8 @@ import requests
 import mysql.connector
 
 app = Flask(__name__)
-CORS(app, origins=["https://ashtavinayak.net", "https://amitpadhye1977.github.io"])
-
-
+# Enable CORS for your domain
+CORS(app, origins=["https://ashtavinayak.net"])
 
 # Database configuration from environment variables
 db_config = {
@@ -45,9 +44,9 @@ def fetch_trip_details():
         return f"Database error: {e}"
 
 # Function to get response from RapidAPI GPT endpoint
-def get_gpt_reply(user_message):
+def get_gpt_reply(prompt_message):
     url = f"https://{rapidapi_host}/chat"
-    payload = {"message": user_message}
+    payload = {"message": prompt_message}
     headers = {
         "content-type": "application/json",
         "X-RapidAPI-Key": rapidapi_key,
@@ -62,32 +61,34 @@ def get_gpt_reply(user_message):
     except Exception as e:
         return f"Error: {str(e)}"
 
-# Home route to serve index.html
 @app.route("/")
 def home():
     return render_template("index.html")
 
-# Chat route to handle user messages
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
         data = request.get_json()
         user_message = data.get("message")
 
-        if "trip" in user_message.lower():
-            trips = fetch_trip_details()
-            if isinstance(trips, str):  # Error occurred
-                return jsonify({"reply": trips})
-            reply = "Here are some available trips:\n"
-            for trip in trips:
-                reply += f"\n{trip['name']} ({trip['duration']}) - {trip['cost']}\nInclusions: {trip['inclusions']}\nStarts: {trip['start_day']}\nContact: {trip['contact']}\n"
-            return jsonify({"reply": reply})
-        else:
-            reply = get_gpt_reply(user_message)
-            return jsonify({"reply": reply})
+        trips = fetch_trip_details()
+        if isinstance(trips, str):  # Error occurred
+            return jsonify({"reply": trips})
+
+        # Format trips into a string for GPT prompt
+        trip_info = ""
+        for trip in trips:
+            trip_info += f"{trip['name']} - {trip['duration']} - {trip['cost']}. Starts: {trip['start_day']}. Includes: {trip['inclusions']}. Contact: {trip['contact']}\n"
+
+        # Create a prompt for GPT
+        prompt = f"User asked: {user_message}\n\nAvailable trips:\n{trip_info}\n\nSuggest the most relevant trip(s) based on the user's question. Reply clearly and concisely."
+
+        reply = get_gpt_reply(prompt)
+        return jsonify({"reply": reply})
+
     except Exception as e:
+        print(f"Chat Error: {str(e)}")  # Log error for debugging
         return jsonify({"reply": f"Sorry, something went wrong. Error: {str(e)}"})
 
-# Main entry point
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000)

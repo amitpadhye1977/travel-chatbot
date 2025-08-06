@@ -46,7 +46,7 @@ def fetch_trip_details():
 # Function to get response from RapidAPI GPT endpoint
 def get_gpt_reply(prompt_message):
     url = f"https://{rapidapi_host}/chat"
-    payload = {"message": prompt_message}
+    payload = { "prompt": prompt_message }  # or messages[]
     headers = {
         "content-type": "application/json",
         "X-RapidAPI-Key": rapidapi_key,

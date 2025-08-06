@@ -46,21 +46,19 @@ def fetch_trip_details():
 # Function to get response from RapidAPI GPT endpoint
 def get_gpt_reply(prompt_message):
     url = f"https://{rapidapi_host}/chat"
-    payload = { "prompt": prompt_message }  # or messages[]
+    payload = {"prompt": prompt_message}
     headers = {
         "content-type": "application/json",
         "X-RapidAPI-Key": rapidapi_key,
         "X-RapidAPI-Host": rapidapi_host
     }
 
-    try:
-        response = requests.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-        result = response.json()
-        print("GPT API Response:", result)  # 🔍 Debug line
-        return result.get("reply", "No reply received.")
-    except Exception as e:
-        return f"Error: {str(e)}"
+    response = requests.post(url, json=payload, headers=headers)
+    response.raise_for_status()
+    result = response.json()
+    print("GPT API Response:", result)
+    return result.get("reply", "No reply received.")
+
 
 
 @app.route("/")

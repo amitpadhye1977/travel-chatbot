@@ -7,16 +7,25 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# OpenAI API Key from environment variable
-openai.api_key = os.getenv("OPENAI_API_KEY")
+import os
+import requests
 
-# MySQL config from environment variables
-db_config = {
-    'host': os.getenv("DB_HOST", "your-db-host"),
-    'user': os.getenv("DB_USER", "your-db-user"),
-    'password': os.getenv("DB_PASSWORD", "your-db-password"),
-    'database': os.getenv("DB_NAME", "your-db-name")
-}
+rapidapi_key = os.getenv("RAPIDAPI_KEY")  # Get from environment
+
+def get_gpt_reply(user_message):
+    url = "https://your-api-host.p.rapidapi.com/chat"
+    
+    payload = {"message": user_message}
+    headers = {
+        "content-type": "application/json",
+        "X-RapidAPI-Key": rapidapi_key,
+        "X-RapidAPI-Host": "chatgpt-42.p.rapidapi.com"
+    }
+
+    response = requests.post(url, json=payload, headers=headers)
+    result = response.json()
+    return result.get("reply", "No reply received.")
+
 
 @app.route("/")
 def home():

@@ -5,7 +5,8 @@ import requests
 import mysql.connector
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["https://amitpadhye1977.github.io"])
+
 
 # Database configuration from environment variables
 db_config = {

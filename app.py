@@ -70,10 +70,11 @@ def chat():
         bot_reply = response['choices'][0]['message']['content']
         return jsonify({"reply": bot_reply})
         
-    except Exception as e:
+  except Exception as e:
     error_msg = str(e)
     print("Error:", error_msg)
     return jsonify({"reply": f"Error: {error_msg}"})
+
 
 
 if __name__ == "__main__":

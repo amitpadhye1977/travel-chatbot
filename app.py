@@ -57,9 +57,11 @@ def get_gpt_reply(prompt_message):
         response = requests.post(url, json=payload, headers=headers)
         response.raise_for_status()
         result = response.json()
+        print("GPT API Response:", result)  # 🔍 Debug line
         return result.get("reply", "No reply received.")
     except Exception as e:
         return f"Error: {str(e)}"
+
 
 @app.route("/")
 def home():

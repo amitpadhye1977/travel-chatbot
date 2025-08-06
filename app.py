@@ -1,27 +1,3 @@
-from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS
-import openai
-import mysql.connector
-import os
-
-app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
-
-# Load OpenAI API key from environment variable
-openai.api_key = os.getenv("OPENAI_API_KEY")
-
-# Database configuration (update with your MySQL credentials)
-db_config = {
-    'host': os.getenv("DB_HOST", "your-db-host"),
-    'user': os.getenv("DB_USER", "your-db-user"),
-    'password': os.getenv("DB_PASSWORD", "your-db-password"),
-    'database': os.getenv("DB_NAME", "your-db-name")
-}
-
-@app.route("/")
-def home():
-    return render_template("index.html")
-
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
@@ -29,7 +5,6 @@ def chat():
         if not user_message:
             return jsonify({"reply": "Please ask a valid question."})
 
-        # Connect to MySQL and fetch all trip details
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM trips")
@@ -37,7 +12,6 @@ def chat():
         cursor.close()
         conn.close()
 
-        # Format trip data for GPT prompt
         trip_info = ""
         for trip in trips:
             trip_info += (
@@ -49,14 +23,12 @@ def chat():
                 f"Contact: {trip['contact']}\n"
             )
 
-        # Create prompt for GPT
         prompt = (
             f"Customer asked: {user_message}\n"
             f"Here are available trips:\n{trip_info}\n"
             f"Reply politely using the trip details."
         )
 
-        # Call OpenAI API
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
@@ -69,13 +41,11 @@ def chat():
 
         bot_reply = response['choices'][0]['message']['content']
         return jsonify({"reply": bot_reply})
-        
-  except Exception as e:
-    error_msg = str(e)
-    print("Error:", error_msg)
-    return jsonify({"reply": f"Error: {error_msg}"})
 
-
+    except Exception as e:
+        error_msg = str(e)
+        print("Error:", error_msg)
+        return jsonify({"reply": f"Error: {error_msg}"})
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=10000)

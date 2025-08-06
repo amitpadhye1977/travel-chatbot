@@ -1,86 +1,91 @@
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-import openai
-import mysql.connector
 import os
+import requests
+import mysql.connector
 
 app = Flask(__name__)
 CORS(app)
 
-import os
-import requests
+# Database configuration from environment variables
+db_config = {
+    'host': os.getenv('DB_HOST'),
+    'user': os.getenv('DB_USER'),
+    'password': os.getenv('DB_PASSWORD'),
+    'database': os.getenv('DB_NAME')
+}
 
-rapidapi_key = os.getenv("RAPIDAPI_KEY")  # Get from environment
+# RapidAPI configuration
+rapidapi_key = os.getenv("RAPIDAPI_KEY")
+rapidapi_host = os.getenv("RAPIDAPI_HOST")  # e.g., api-ninjas.p.rapidapi.com
 
+# Function to fetch trip details from MySQL
+def fetch_trip_details():
+    try:
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, duration, cost, inclusions, start_day, contact FROM trips")
+        results = cursor.fetchall()
+        conn.close()
+
+        trips = []
+        for row in results:
+            trips.append({
+                'name': row[0],
+                'duration': row[1],
+                'cost': row[2],
+                'inclusions': row[3],
+                'start_day': row[4],
+                'contact': row[5]
+            })
+        return trips
+    except mysql.connector.Error as e:
+        return f"Database error: {e}"
+
+# Function to get response from RapidAPI GPT endpoint
 def get_gpt_reply(user_message):
-    url = "https://your-api-host.p.rapidapi.com/chat"
-    
+    url = f"https://{rapidapi_host}/chat"
     payload = {"message": user_message}
     headers = {
         "content-type": "application/json",
         "X-RapidAPI-Key": rapidapi_key,
-        "X-RapidAPI-Host": "chatgpt-42.p.rapidapi.com"
+        "X-RapidAPI-Host": rapidapi_host
     }
 
-    response = requests.post(url, json=payload, headers=headers)
-    result = response.json()
-    return result.get("reply", "No reply received.")
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        result = response.json()
+        return result.get("reply", "No reply received.")
+    except Exception as e:
+        return f"Error: {str(e)}"
 
-
+# Home route to serve index.html
 @app.route("/")
 def home():
     return render_template("index.html")
 
+# Chat route to handle user messages
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
-        user_message = request.json.get("message", "")
-        if not user_message:
-            return jsonify({"reply": "Please ask a valid question."})
+        data = request.get_json()
+        user_message = data.get("message")
 
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM trips")
-        trips = cursor.fetchall()
-        cursor.close()
-        conn.close()
-
-        trip_info = ""
-        for trip in trips:
-            trip_info += (
-                f"\nTrip Name: {trip['name']}\n"
-                f"Duration: {trip['duration']}\n"
-                f"Cost: {trip['cost']}\n"
-                f"Inclusions: {trip['inclusions']}\n"
-                f"Start Day: {trip['start_day']}\n"
-                f"Contact: {trip['contact']}\n"
-            )
-
-        prompt = (
-            f"Customer asked: {user_message}\n"
-            f"Here are available trips:\n{trip_info}\n"
-            f"Reply politely using the trip details."
-        )
-
-        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful trip assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500,
-            temperature=0.7
-        )
-        
-        bot_reply = response.choices[0].message.content
-
-
+        if "trip" in user_message.lower():
+            trips = fetch_trip_details()
+            if isinstance(trips, str):  # Error occurred
+                return jsonify({"reply": trips})
+            reply = "Here are some available trips:\n"
+            for trip in trips:
+                reply += f"\n{trip['name']} ({trip['duration']}) - {trip['cost']}\nInclusions: {trip['inclusions']}\nStarts: {trip['start_day']}\nContact: {trip['contact']}\n"
+            return jsonify({"reply": reply})
+        else:
+            reply = get_gpt_reply(user_message)
+            return jsonify({"reply": reply})
     except Exception as e:
-        error_msg = str(e)
-        print("Error:", error_msg)
-        return jsonify({"reply": f"Error: {error_msg}"})
+        return jsonify({"reply": f"Sorry, something went wrong. Error: {str(e)}"})
 
+# Main entry point
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host='0.0.0.0', port=5000)

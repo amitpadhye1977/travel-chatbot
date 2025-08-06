@@ -1,3 +1,27 @@
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
+import openai
+import mysql.connector
+import os
+
+app = Flask(__name__)
+CORS(app)
+
+# OpenAI API Key from environment variable
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# MySQL config from environment variables
+db_config = {
+    'host': os.getenv("DB_HOST", "your-db-host"),
+    'user': os.getenv("DB_USER", "your-db-user"),
+    'password': os.getenv("DB_PASSWORD", "your-db-password"),
+    'database': os.getenv("DB_NAME", "your-db-name")
+}
+
+@app.route("/")
+def home():
+    return render_template("index.html")
+
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
@@ -48,4 +72,4 @@ def chat():
         return jsonify({"reply": f"Error: {error_msg}"})
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=10000)
+    app.run(host="0.0.0.0", port=10000)

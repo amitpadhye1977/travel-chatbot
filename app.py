@@ -71,8 +71,9 @@ def chat():
         return jsonify({"reply": bot_reply})
         
     except Exception as e:
-        print("Error:", str(e))
-        return jsonify({"reply": "Sorry, something went wrong. Please try again later."})
+    error_msg = str(e)
+    print("Error:", error_msg)
+    return jsonify({"reply": f"Error: {error_msg}"})
 
 
 if __name__ == "__main__":

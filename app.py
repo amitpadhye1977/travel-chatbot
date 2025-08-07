@@ -1,74 +1,97 @@
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import os
-import openai
-import requests
 import mysql.connector
+import openai
 
 app = Flask(__name__)
 CORS(app, origins=["https://ashtavinayak.net"])
 
-openai.api_key = os.environ.get("OPENAI_API_KEY")
+# Load secrets from environment
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# MySQL connection details
+# Database config
 db_config = {
-    'host': os.environ.get("DB_HOST"),
-    'user': os.environ.get("DB_USER"),
-    'password': os.environ.get("DB_PASSWORD"),
-    'database': os.environ.get("DB_NAME"),
-    'ssl_disabled': True  # Planetscale needs SSL – use connector settings if needed
+    'host': os.getenv('DB_HOST'),
+    'user': os.getenv('DB_USER'),
+    'password': os.getenv('DB_PASSWORD'),
+    'database': os.getenv('DB_NAME')
 }
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+# Function to fetch trip details from MySQL
+def fetch_trip_details():
+    try:
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, duration, cost, inclusions, start_day, contact FROM trips")
+        results = cursor.fetchall()
+        conn.close()
 
-@app.route('/chat', methods=['POST'])
+        trips = []
+        for row in results:
+            trips.append({
+                'name': row[0],
+                'duration': row[1],
+                'cost': row[2],
+                'inclusions': row[3],
+                'start_day': row[4],
+                'contact': row[5]
+            })
+        return trips
+    except mysql.connector.Error as e:
+        return f"Database error: {e}"
+
+# Function to get GPT reply using OpenAI
+def get_gpt_reply(prompt_message):
+    try:
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt_message}
+            ],
+            temperature=0.7
+        )
+        return response.choices[0].message["content"].strip()
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@app.route("/")
+def home():
+    return render_template("index.html")
+
+@app.route("/chat", methods=["POST"])
 def chat():
-    user_message = request.json['message']
-    
-    # Connect to MySQL
-    conn = mysql.connector.connect(**db_config)
-    cursor = conn.cursor()
-    
-    # Fetch trip info (for simplicity, first matching trip)
-    cursor.execute("SELECT name, duration, cost, inclusions, start_day, contact FROM trips WHERE name LIKE '%Ashtavinayak%'")
-    trip = cursor.fetchone()
-    conn.close()
+    try:
+        data = request.get_json()
+        user_message = data.get("message")
 
-    if trip:
-        trip_info = f"""
-Trip: {trip[0]}
-Duration: {trip[1]}
-Cost: {trip[2]}
-Includes: {trip[3]}
-Start Day: {trip[4]}
-Contact: {trip[5]}
-"""
-    else:
-        trip_info = "No trip information found."
+        trips = fetch_trip_details()
+        if isinstance(trips, str):  # error message
+            return jsonify({"reply": trips})
 
-    prompt = f"""
-You are a helpful travel assistant. Use the following trip info to answer user questions.
+        # Prepare trip summary
+        trip_info = ""
+        for trip in trips:
+            trip_info += (
+                f"{trip['name']} - {trip['duration']} - {trip['cost']}. "
+                f"Starts: {trip['start_day']}. Includes: {trip['inclusions']}. "
+                f"Contact: {trip['contact']}\n"
+            )
 
-{trip_info}
+        prompt = (
+            f"User asked: {user_message}\n\n"
+            f"Available trips:\n{trip_info}\n\n"
+            f"Suggest the most relevant trip(s) based on the user's question. "
+            f"Reply clearly and concisely."
+        )
 
-User: {user_message}
-Assistant:"""
+        reply = get_gpt_reply(prompt)
+        return jsonify({"reply": reply})
 
-    response = openai.ChatCompletion.create(
-    model="gpt-3.5-turbo",  # or "gpt-4" if available
-    messages=[
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": prompt}
-    ],
-    temperature=0.7,
-    max_tokens=150
-)
-return response.choices[0].message["content"].strip()
+    except Exception as e:
+        print(f"Chat Error: {str(e)}")
+        return jsonify({"reply": f"Sorry, something went wrong. Error: {str(e)}"})
 
-bot_reply = response.choices[0].text.strip()
-return jsonify({'reply': bot_reply})
-
-if __name__ == '__main__':
-    app.run(debug=True)
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=5000)

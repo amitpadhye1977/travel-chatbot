@@ -53,7 +53,9 @@ def chat():
             f"Reply politely using the trip details."
         )
 
-        response = openai.ChatCompletion.create(
+        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a helpful trip assistant."},
@@ -62,9 +64,9 @@ def chat():
             max_tokens=500,
             temperature=0.7
         )
+        
+        bot_reply = response.choices[0].message.content
 
-        bot_reply = response['choices'][0]['message']['content']
-        return jsonify({"reply": bot_reply})
 
     except Exception as e:
         error_msg = str(e)

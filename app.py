@@ -11,10 +11,10 @@ openai.api_key = 'YOUR_OPENAI_API_KEY'
 
 # MySQL configuration
 db_config = {
-    'host': 'localhost',        # or your remote DB host
-    'user': 'your_db_user',
-    'password': 'your_db_password',
-    'database': 'your_db_name'
+    'host': 'DB_HOST',        # or your remote DB host
+    'user': 'DB_USER',
+    'password': 'DB_PASSWORD',
+    'database': 'DB_NAME'
 }
 
 @app.route('/')

@@ -67,8 +67,8 @@ Assistant:"""
 )
 return response.choices[0].message["content"].strip()
 
-    bot_reply = response.choices[0].text.strip()
-    return jsonify({'reply': bot_reply})
+bot_reply = response.choices[0].text.strip()
+return jsonify({'reply': bot_reply})
 
 if __name__ == '__main__':
     app.run(debug=True)

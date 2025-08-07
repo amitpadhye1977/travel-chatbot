@@ -56,12 +56,16 @@ You are a helpful travel assistant. Use the following trip info to answer user q
 User: {user_message}
 Assistant:"""
 
-    response = openai.Completion.create(
-        engine="text-davinci-003",
-        prompt=prompt,
-        max_tokens=150,
-        temperature=0.7
-    )
+    response = openai.ChatCompletion.create(
+    model="gpt-3.5-turbo",  # or "gpt-4" if available
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": prompt}
+    ],
+    temperature=0.7,
+    max_tokens=150
+)
+return response.choices[0].message["content"].strip()
 
     bot_reply = response.choices[0].text.strip()
     return jsonify({'reply': bot_reply})

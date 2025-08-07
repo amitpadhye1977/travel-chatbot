@@ -1,77 +1,53 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import openai
-import mysql.connector
+import pymysql
 import os
 
 app = Flask(__name__)
 CORS(app)
 
-# OpenAI API Key from environment variable
+# Load from Render environment variables
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# MySQL config from environment variables
-db_config = {
-    'host': os.getenv("DB_HOST", "your-db-host"),
-    'user': os.getenv("DB_USER", "your-db-user"),
-    'password': os.getenv("DB_PASSWORD", "your-db-password"),
-    'database': os.getenv("DB_NAME", "your-db-name")
-}
-
-@app.route("/")
-def home():
-    return render_template("index.html")
+DB_HOST = os.getenv("DB_HOST")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_NAME = os.getenv("DB_NAME")
 
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
-        user_message = request.json.get("message", "")
-        if not user_message:
-            return jsonify({"reply": "Please ask a valid question."})
+        data = request.get_json()
+        user_message = data.get("message", "").strip()
 
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM trips")
-        trips = cursor.fetchall()
-        cursor.close()
+        if not user_message:
+            return jsonify({"reply": "Message is empty"}), 400
+
+        # Connect to MySQL
+        conn = pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, database=DB_NAME)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT place_name, description FROM trip_data")
+        rows = cursor.fetchall()
         conn.close()
 
-        trip_info = ""
-        for trip in trips:
-            trip_info += (
-                f"\nTrip Name: {trip['name']}\n"
-                f"Duration: {trip['duration']}\n"
-                f"Cost: {trip['cost']}\n"
-                f"Inclusions: {trip['inclusions']}\n"
-                f"Start Day: {trip['start_day']}\n"
-                f"Contact: {trip['contact']}\n"
-            )
+        trip_info = "\n".join([f"{name}: {desc}" for name, desc in rows])
 
-        prompt = (
-            f"Customer asked: {user_message}\n"
-            f"Here are available trips:\n{trip_info}\n"
-            f"Reply politely using the trip details."
-        )
-
-        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-        response = client.chat.completions.create(
+        # Send to OpenAI
+        response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a helpful trip assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500,
-            temperature=0.7
+                {"role": "system", "content": "You are a helpful travel assistant."},
+                {"role": "user", "content": f"User asked: {user_message}\nUse this info:\n{trip_info}"}
+            ]
         )
-        
-        bot_reply = response.choices[0].message.content
 
+        reply = response.choices[0].message["content"].strip()
+        return jsonify({"reply": reply})
 
     except Exception as e:
-        error_msg = str(e)
-        print("Error:", error_msg)
-        return jsonify({"reply": f"Error: {error_msg}"})
+        return jsonify({"reply": f"Error: {str(e)}"}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(debug=True)

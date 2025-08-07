@@ -7,7 +7,7 @@ import mysql.connector
 app = Flask(__name__)
 CORS(app, origins=["https://ashtavinayak.net"])
 
-openai.api_key = "YOUR_OPENAI_API_KEY"
+openai.api_key = "OPENAI_API_KEY"
 
 # MySQL connection details
 db_config = {

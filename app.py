@@ -32,4 +32,55 @@ def fetch_trip_details():
                 'duration': row[1],
                 'cost': row[2],
                 'inclusions': row[3],
-                's
+                'start_day': row[4],
+                'contact': row[5]
+            })
+        return trips
+    except mysql.connector.Error as e:
+        return f"Database error: {e}"
+
+def get_gpt_reply(prompt_message):
+    url = f"https://{rapidapi_host}/chat"
+    payload = {"prompt": prompt_message}
+    headers = {
+        "content-type": "application/json",
+        "X-RapidAPI-Key": rapidapi_key,
+        "X-RapidAPI-Host": rapidapi_host
+    }
+
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        result = response.json()
+        return result.get("reply", "No reply received.")
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+@app.route("/")
+def home():
+    return render_template("index.html")
+
+@app.route("/chat", methods=["POST"])
+def chat():
+    try:
+        data = request.get_json()
+        user_message = data.get("message")
+
+        trips = fetch_trip_details()
+        if isinstance(trips, str):
+            return jsonify({"reply": trips})
+
+        trip_info = ""
+        for trip in trips:
+            trip_info += f"{trip['name']} - {trip['duration']} - {trip['cost']}. Starts: {trip['start_day']}. Includes: {trip['inclusions']}. Contact: {trip['contact']}\n"
+
+        prompt = f"User asked: {user_message}\n\nAvailable trips:\n{trip_info}\n\nSuggest the most relevant trip(s) based on the user's question. Reply clearly and concisely."
+
+        reply = get_gpt_reply(prompt)
+        return jsonify({"reply": reply})
+
+    except Exception as e:
+        return jsonify({"reply": f"Sorry, something went wrong. Error: {str(e)}"})
+
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=5000)

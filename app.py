@@ -5,17 +5,21 @@ import mysql.connector
 
 app = Flask(__name__)
 CORS(app)
-
+import os
 # Set your OpenAI API key here
-openai.api_key = 'OPENAI_API_KEY'
+openai_api_key = os.environ.get('OPENAI_API_KEY')
+
 
 # MySQL configuration
+
+
 db_config = {
-    'host': 'DB_HOST',        # or your remote DB host
-    'user': 'DB_USER',
-    'password': 'DB_PASSWORD',
-    'database': 'DB_NAME'
+    'host': os.environ.get('DB_HOST'),
+    'user': os.environ.get('DB_USER'),
+    'password': os.environ.get('DB_PASSWORD'),
+    'database': os.environ.get('DB_NAME')
 }
+
 
 @app.route('/')
 def index():

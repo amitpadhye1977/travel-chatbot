@@ -1,69 +1,80 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import openai
-import pymysql
+import mysql.connector
 import os
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # Enable CORS for all routes
 
-openai.api_key = os.environ.get("OPENAI_API_KEY")
+# Load OpenAI API key from environment variable
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# MySQL connection from environment variables (Render supports this)
+# Database configuration (update with your MySQL credentials)
 db_config = {
-    'host': os.environ.get("DB_HOST"),
-    'user': os.environ.get("aDB_USER"),
-    'password': os.environ.get("DB_PASSWORD"),
-    'database': os.environ.get("DB_NAME"),
-    'ssl_disabled': True  # Planetscale needs SSL – use connector settings if needed
+    'host': os.getenv("DB_HOST", "your-db-host"),
+    'user': os.getenv("DB_USER", "your-db-user"),
+    'password': os.getenv("DB_PASSWORD", "your-db-password"),
+    'database': os.getenv("DB_NAME", "your-db-name")
 }
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+@app.route("/")
+def home():
+    return render_template("index.html")
 
-@app.route('/chat', methods=['POST'])
+@app.route("/chat", methods=["POST"])
 def chat():
-    user_message = request.json['message']
-    
     try:
+        user_message = request.json.get("message", "")
+        if not user_message:
+            return jsonify({"reply": "Please ask a valid question."})
+
+        # Connect to MySQL and fetch all trip details
         conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor()
-        cursor.execute("SELECT name, duration, cost, inclusions, start_day, contact FROM trips WHERE name LIKE '%Ashtavinayak%'")
-        trip = cursor.fetchone()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM trips")
+        trips = cursor.fetchall()
+        cursor.close()
         conn.close()
+
+        # Format trip data for GPT prompt
+        trip_info = ""
+        for trip in trips:
+            trip_info += (
+                f"\nTrip Name: {trip['name']}\n"
+                f"Duration: {trip['duration']}\n"
+                f"Cost: {trip['cost']}\n"
+                f"Inclusions: {trip['inclusions']}\n"
+                f"Start Day: {trip['start_day']}\n"
+                f"Contact: {trip['contact']}\n"
+            )
+
+        # Create prompt for GPT
+        prompt = (
+            f"Customer asked: {user_message}\n"
+            f"Here are available trips:\n{trip_info}\n"
+            f"Reply politely using the trip details."
+        )
+
+        # Call OpenAI API
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful trip assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=500,
+            temperature=0.7
+        )
+
+        bot_reply = response['choices'][0]['message']['content']
+        return jsonify({"reply": bot_reply})
+        
     except Exception as e:
-        trip = None
+    error_msg = str(e)
+    print("Error:", error_msg)
+    return jsonify({"reply": f"Error: {error_msg}"})
 
-    if trip:
-        trip_info = f"""
-Trip: {trip[0]}
-Duration: {trip[1]}
-Cost: {trip[2]}
-Includes: {trip[3]}
-Start Day: {trip[4]}
-Contact: {trip[5]}
-"""
-    else:
-        trip_info = "No trip information found."
 
-    prompt = f"""
-You are a helpful travel assistant. Use this trip info to answer user questions.
-
-{trip_info}
-
-User: {user_message}
-Assistant:"""
-
-    response = openai.Completion.create(
-        engine="text-davinci-003",
-        prompt=prompt,
-        max_tokens=150,
-        temperature=0.7
-    )
-
-    bot_reply = response.choices[0].text.strip()
-    return jsonify({'reply': bot_reply})
-
-if __name__ == '__main__':
-    app.run(debug=True)
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=10000)

@@ -7,7 +7,7 @@ app = Flask(__name__)
 CORS(app)
 
 # Set your OpenAI API key here
-openai.api_key = 'YOUR_OPENAI_API_KEY'
+openai.api_key = 'OPENAI_API_KEY'
 
 # MySQL configuration
 db_config = {

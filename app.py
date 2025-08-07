@@ -7,80 +7,63 @@ import mysql.connector
 app = Flask(__name__)
 CORS(app, origins=["https://ashtavinayak.net"])
 
+openai.api_key = "YOUR_OPENAI_API_KEY"
+
+# MySQL connection details
 db_config = {
-    'host': os.getenv('DB_HOST'),
-    'user': os.getenv('DB_USER'),
-    'password': os.getenv('DB_PASSWORD'),
-    'database': os.getenv('DB_NAME')
+    'host': os.environ.get("DB_HOST"),
+    'user': os.environ.get("DB_USER"),
+    'password': os.environ.get("DB_PASSWORD"),
+    'database': os.environ.get("DB_NAME"),
+    'ssl_disabled': True  # Planetscale needs SSL – use connector settings if needed
 }
 
-rapidapi_key = os.getenv("RAPIDAPI_KEY")
-rapidapi_host = os.getenv("RAPIDAPI_HOST")  # e.g., chatgpt-42.p.rapidapi.com
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-def fetch_trip_details():
-    try:
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor()
-        cursor.execute("SELECT name, duration, cost, inclusions, start_day, contact FROM trips")
-        results = cursor.fetchall()
-        conn.close()
-
-        trips = []
-        for row in results:
-            trips.append({
-                'name': row[0],
-                'duration': row[1],
-                'cost': row[2],
-                'inclusions': row[3],
-                'start_day': row[4],
-                'contact': row[5]
-            })
-        return trips
-    except mysql.connector.Error as e:
-        return f"Database error: {e}"
-
-def get_gpt_reply(prompt_message):
-    url = f"https://{rapidapi_host}/chat"
-    payload = {"prompt": prompt_message}
-    headers = {
-        "content-type": "application/json",
-        "X-RapidAPI-Key": rapidapi_key,
-        "X-RapidAPI-Host": rapidapi_host
-    }
-
-    try:
-        response = requests.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-        result = response.json()
-        return result.get("reply", "No reply received.")
-    except Exception as e:
-        return f"Error: {str(e)}"
-
-@app.route("/")
-def home():
-    return render_template("index.html")
-
-@app.route("/chat", methods=["POST"])
+@app.route('/chat', methods=['POST'])
 def chat():
-    try:
-        data = request.get_json()
-        user_message = data.get("message")
+    user_message = request.json['message']
+    
+    # Connect to MySQL
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor()
+    
+    # Fetch trip info (for simplicity, first matching trip)
+    cursor.execute("SELECT name, duration, cost, inclusions, start_day, contact FROM trips WHERE name LIKE '%Ashtavinayak%'")
+    trip = cursor.fetchone()
+    conn.close()
 
-        trips = fetch_trip_details()
-        if isinstance(trips, str):
-            return jsonify({"reply": trips})
+    if trip:
+        trip_info = f"""
+Trip: {trip[0]}
+Duration: {trip[1]}
+Cost: {trip[2]}
+Includes: {trip[3]}
+Start Day: {trip[4]}
+Contact: {trip[5]}
+"""
+    else:
+        trip_info = "No trip information found."
 
-        trip_info = ""
-        for trip in trips:
-            trip_info += f"{trip['name']} - {trip['duration']} - {trip['cost']}. Starts: {trip['start_day']}. Includes: {trip['inclusions']}. Contact: {trip['contact']}\n"
+    prompt = f"""
+You are a helpful travel assistant. Use the following trip info to answer user questions.
 
-        prompt = f"User asked: {user_message}\n\nAvailable trips:\n{trip_info}\n\nSuggest the most relevant trip(s) based on the user's question. Reply clearly and concisely."
+{trip_info}
 
-        reply = get_gpt_reply(prompt)
-        return jsonify({"reply": reply})
+User: {user_message}
+Assistant:"""
 
-    except Exception as e:
-        return jsonify({"reply": f"Sorry, something went wrong. Error: {str(e)}"})
+    response = openai.Completion.create(
+        engine="text-davinci-003",
+        prompt=prompt,
+        max_tokens=150,
+        temperature=0.7
+    )
 
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000)
+    bot_reply = response.choices[0].text.strip()
+    return jsonify({'reply': bot_reply})
+
+if __name__ == '__main__':
+    app.run(debug=True)

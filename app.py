@@ -59,7 +59,7 @@ def search_trip_info(query):
 
     try:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM trips WHERE name LIKE %s")
+            cursor.execute("SELECT * FROM trips WHERE name LIKE '%s'")
             results = cursor.fetchall()
             cursor.close()
             conn.close()

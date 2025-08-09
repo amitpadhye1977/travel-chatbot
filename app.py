@@ -59,10 +59,11 @@ def search_trip_info(query):
 
     try:
         with conn.cursor() as cursor:
-            sql = "SELECT * FROM trips WHERE name LIKE %s", ("%" + keyword + "%",)"
-            cursor.execute(sql, (f"%{query}%", f"%{query}%"))
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM trips WHERE name LIKE %s", ("%" + keyword + "%",))
             results = cursor.fetchall()
-            logger.info(f"🔍 Trip search results: {results}")
+            cursor.close()
+            conn.close()
             return results
     except Exception as e:
         logger.error(f"❌ Trip Search Error: {e}")

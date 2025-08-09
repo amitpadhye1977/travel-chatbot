@@ -6,3 +6,4 @@ gunicorn
 openai
 googlemaps
 python-dotenv
+pymysql

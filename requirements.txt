@@ -4,3 +4,4 @@ requests
 mysql-connector-python
 gunicorn
 openai
+googlemaps

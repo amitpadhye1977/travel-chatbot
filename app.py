@@ -157,7 +157,7 @@ def chat():
                 f"📞 Contact: {t['contact']}"
                 for t in results
             ])
-            return jsonify({"reply": f"I found these trips:\n\n{trips_info}"})
+        return jsonify({"reply": f"I found these trips:\n\n{trips_info}"})
 
     # Fallback to OpenAI
     ai_response = get_openai_response(user_message)

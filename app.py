@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 # Load environment variables
 openai.api_key = os.environ.get("OPENAI_API_KEY")
-gmaps = googlemaps.Client(key=os.environ.get("GOOGLE_MAPS_API_KEY"))
+gmaps = googlemaps.Client(key=os.environ.get("GOOGLE_API_KEY"))
 
 db_config = {
     'host': os.environ.get("DB_HOST"),

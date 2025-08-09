@@ -1,119 +1,166 @@
-from flask import Flask, request, jsonify
 import os
-import mysql.connector
+import logging
+from flask import Flask, request, jsonify
+import pymysql
 import openai
-import googlemaps
+import requests
 
+# -----------------------
+# Logging setup
+# -----------------------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# -----------------------
+# Flask App
+# -----------------------
 app = Flask(__name__)
 
-# Load environment variables
-openai.api_key = os.environ.get("OPENAI_API_KEY")
-gmaps = googlemaps.Client(key=os.environ.get("GOOGLE_API_KEY"))
+# -----------------------
+# Environment Variables
+# -----------------------
+DB_HOST = os.environ.get("DB_HOST")
+DB_USER = os.environ.get("DB_USER")
+DB_PASSWORD = os.environ.get("DB_PASSWORD")
+DB_NAME = os.environ.get("DB_NAME")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
-db_config = {
-    'host': os.environ.get("DB_HOST"),
-    'user': os.environ.get("DB_USER"),
-    'password': os.environ.get("DB_PASSWORD"),
-    'database': os.environ.get("DB_NAME")
-}
+openai.api_key = OPENAI_API_KEY
 
-# Helper: Get MySQL connection
+# -----------------------
+# Database Connection
+# -----------------------
 def get_db_connection():
-    return mysql.connector.connect(**db_config)
+    try:
+        conn = pymysql.connect(
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
+            cursorclass=pymysql.cursors.DictCursor
+        )
+        logger.info("✅ MySQL Connected")
+        return conn
+    except Exception as e:
+        logger.error(f"❌ DB Connection Error: {e}")
+        return None
 
-# Helper: Search trip info from MySQL
-def search_trip_info(user_query):
+# -----------------------
+# Trip Info Search
+# -----------------------
+def search_trip_info(query):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM trips WHERE description LIKE %s", ("%" + user_query + "%",))
-    results = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return results
+    if not conn:
+        return None
 
-# Helper: Find nearest temple from MySQL using Google Maps
+    try:
+        with conn.cursor() as cursor:
+            sql = "SELECT * FROM trips WHERE name LIKE %s OR description LIKE %s"
+            cursor.execute(sql, (f"%{query}%", f"%{query}%"))
+            results = cursor.fetchall()
+            logger.info(f"🔍 Trip search results: {results}")
+            return results
+    except Exception as e:
+        logger.error(f"❌ Trip Search Error: {e}")
+        return None
+    finally:
+        conn.close()
+
+# -----------------------
+# Temple Nearest Search
+# -----------------------
 def find_nearest_temple(user_location_name):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT name, address, latitude, longitude FROM pickuppoints")
-    temples = cursor.fetchall()
-    cursor.close()
-    conn.close()
+    if not conn:
+        return None
 
-    # Get coordinates for user location
-    geocode_result = gmaps.geocode(user_location_name)
-    if not geocode_result:
-        return "Could not find your location."
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT name, address, latitude, longitude FROM pickuppoints")
+            temples = cursor.fetchall()
 
-    user_lat = geocode_result[0]['geometry']['location']['lat']
-    user_lng = geocode_result[0]['geometry']['location']['lng']
+        # Geocode user location
+        geo_url = f"https://maps.googleapis.com/maps/api/geocode/json?address={user_location_name}&key={GOOGLE_MAPS_API_KEY}"
+        geo_res = requests.get(geo_url).json()
+        if geo_res["status"] != "OK":
+            logger.warning("❌ Could not geocode location")
+            return None
+        user_lat = geo_res["results"][0]["geometry"]["location"]["lat"]
+        user_lng = geo_res["results"][0]["geometry"]["location"]["lng"]
 
-    # Find nearest temple by distance
-    nearest_temple = None
-    shortest_distance = float("inf")
+        # Find nearest temple
+        def distance(lat1, lon1, lat2, lon2):
+            from math import radians, sin, cos, sqrt, atan2
+            R = 6371
+            dlat = radians(lat2 - lat1)
+            dlon = radians(lon2 - lon1)
+            a = sin(dlat/2)**2 + cos(radians(lat1))*cos(radians(lat2))*sin(dlon/2)**2
+            return R * 2 * atan2(sqrt(a), sqrt(1-a))
 
-    for temple in temples:
-        temple_lat = float(temple['latitude'])
-        temple_lng = float(temple['longitude'])
-        distance_result = gmaps.distance_matrix(
-            origins=(user_lat, user_lng),
-            destinations=(temple_lat, temple_lng),
-            mode="driving"
+        nearest = min(temples, key=lambda t: distance(user_lat, user_lng, t["latitude"], t["longitude"]))
+        logger.info(f"✅ Nearest temple: {nearest}")
+        return nearest
+    except Exception as e:
+        logger.error(f"❌ Nearest Temple Search Error: {e}")
+        return None
+    finally:
+        conn.close()
+
+# -----------------------
+# OpenAI Chat Response
+# -----------------------
+def get_openai_response(user_message):
+    try:
+        completion = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a travel assistant chatbot."},
+                {"role": "user", "content": user_message}
+            ]
         )
+        return completion.choices[0].message["content"]
+    except Exception as e:
+        logger.error(f"❌ OpenAI API Error: {e}")
+        return "Sorry, I am having trouble answering that."
 
-        distance_text = distance_result['rows'][0]['elements'][0]['distance']['text']
-        distance_value = distance_result['rows'][0]['elements'][0]['distance']['value']  # meters
-
-        if distance_value < shortest_distance:
-            shortest_distance = distance_value
-            nearest_temple = {
-                "name": temple['name'],
-                "address": temple['address'],
-                "distance": distance_text
-            }
-
-    if nearest_temple:
-        return f"The nearest temple is {nearest_temple['name']} located at {nearest_temple['address']} ({nearest_temple['distance']} away)."
-    else:
-        return "No temples found in the database."
-
-# Chatbot endpoint
+# -----------------------
+# Chatbot Endpoint
+# -----------------------
 @app.route("/chat", methods=["POST"])
 def chat():
-    user_message = request.json.get("message", "")
+    data = request.json
+    user_message = data.get("message", "").strip()
+    logger.info(f"💬 User message: {user_message}")
 
-    # Step 1: Check if user is asking about nearest temple
-    if "pickup" in user_message.lower():
-        # Try to extract location (default Borivali if none given)
-        if "in " in user_message.lower():
-            location = user_message.lower().split("in ")[1]
+    # Check for nearest temple query
+    if "nearest temple" in user_message.lower():
+        location_name = user_message.replace("nearest temple from", "").strip()
+        temple = find_nearest_temple(location_name)
+        if temple:
+            return jsonify({"response": f"The nearest temple is {temple['name']} at {temple['address']}."})
         else:
-            location = "Borivali"
-        temple_info = find_nearest_temple(location)
-        return jsonify({"reply": temple_info})
+            return jsonify({"response": "I couldn't find a nearby temple."})
 
-    # Step 2: Check trip info in MySQL
-    trip_results = search_trip_info(user_message)
-    if trip_results:
-        reply = "I found these trips:\n" + "\n".join([t['description'] for t in trip_results])
-        return jsonify({"reply": reply})
+    # Search for trip info
+    trips = search_trip_info(user_message)
+    if trips:
+        trip_text = "\n".join([f"{t['name']} - {t.get('description', '')}" for t in trips])
+        return jsonify({"response": f"Here are some trips I found:\n{trip_text}"})
 
-    # Step 3: Fallback to OpenAI chatbot
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "system", "content": "You are a helpful travel assistant."},
-                      {"role": "user", "content": user_message}]
-        )
-        bot_reply = response.choices[0].message.content.strip()
-        return jsonify({"reply": bot_reply})
-    except Exception as e:
-        return jsonify({"reply": f"Error: {str(e)}"})
+    # Fallback to OpenAI
+    ai_response = get_openai_response(user_message)
+    return jsonify({"response": ai_response})
 
-# Root route
+# -----------------------
+# Health Check
+# -----------------------
 @app.route("/")
 def home():
-    return "Chatbot API is running."
+    return "Chatbot API is running"
 
+# -----------------------
+# Run App
+# -----------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

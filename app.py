@@ -14,10 +14,10 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # MySQL Connection
 db = mysql.connector.connect(
-    host=os.getenv("MYSQL_HOST"),
-    user=os.getenv("MYSQL_USER"),
-    password=os.getenv("MYSQL_PASSWORD"),
-    database=os.getenv("MYSQL_DB")
+    host=os.getenv("DB_HOST"),
+    user=os.getenv("DB_USER"),
+    password=os.getenv("DB_PASSWORD"),
+    database=os.getenv("DB_NAME")
 )
 cursor = db.cursor(dictionary=True)
 

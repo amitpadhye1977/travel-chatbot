@@ -59,7 +59,7 @@ def search_trip_info(query):
 
     try:
         with conn.cursor() as cursor:
-            sql = "SELECT * FROM trips WHERE name LIKE %s OR description LIKE %s"
+            sql = "SELECT * FROM trips WHERE name LIKE %s", ("%" + keyword + "%",))"
             cursor.execute(sql, (f"%{query}%", f"%{query}%"))
             results = cursor.fetchall()
             logger.info(f"🔍 Trip search results: {results}")
@@ -157,7 +157,7 @@ def chat():
                 f"📞 Contact: {t['contact']}"
                 for t in results
             ])
-    return jsonify({"reply": f"I found these trips:\n\n{trips_info}"})
+        return jsonify({"reply": f"I found these trips:\n\n{trips_info}"})
 
     # Fallback to OpenAI
     ai_response = get_openai_response(user_message)

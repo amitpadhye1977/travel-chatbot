@@ -148,8 +148,16 @@ def chat():
     # Search for trip info
     trips = search_trip_info(user_message)
     if trips:
-        trip_text = "\n".join([f"{t['name']} - {t.get('description', '')}" for t in trips])
-        return jsonify({"response": f"Here are some trips I found:\n{trip_text}"})
+        trips_info = "\n\n".join([
+                f"📍 {t['name']}\n"
+                f"⏳ Duration: {t['duration']}\n"
+                f"💰 Cost: {t['cost']}\n"
+                f"✅ Inclusions: {t['inclusions']}\n"
+                f"📅 Start Day: {t['start_day']}\n"
+                f"📞 Contact: {t['contact']}"
+                for t in results
+            ])
+            return jsonify({"reply": f"I found these trips:\n\n{trips_info}"})
 
     # Fallback to OpenAI
     ai_response = get_openai_response(user_message)

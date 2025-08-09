@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 # -----------------------
 app = Flask(__name__)
 
+CORS(app, origins=["https://www.ashtavinayak.net"])
+
 # -----------------------
 # Environment Variables
 # -----------------------

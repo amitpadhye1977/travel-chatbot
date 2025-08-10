@@ -52,23 +52,19 @@ def get_db_connection():
 # -----------------------
 # Trip Info Search
 # -----------------------
-def search_trip_info(query):
+def search_trip_info(keyword):
     conn = get_db_connection()
-    if not conn:
-        return None
-
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM trips WHERE name LIKE '%s'")
-            results = cursor.fetchall()
-            cursor.close()
-            conn.close()
-            return results
-    except Exception as e:
-        logger.error(f"❌ Trip Search Error: {e}")
-        return None
-    finally:
-        conn.close()
+    cursor = conn.cursor(dictionary=True)
+    query = """
+        SELECT * FROM trips
+        WHERE name LIKE %s OR inclusions LIKE %s
+    """
+    like_pattern = f"%{keyword}%"
+    cursor.execute(query, (like_pattern, like_pattern))
+    results = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return results
 
 # -----------------------
 # Temple Nearest Search

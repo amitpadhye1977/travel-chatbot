@@ -54,7 +54,8 @@ def get_db_connection():
 # -----------------------
 def search_trip_info(keyword):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    import pymysql.cursors
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
     query = """
         SELECT * FROM trips
         WHERE name LIKE %s OR inclusions LIKE %s

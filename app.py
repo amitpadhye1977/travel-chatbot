@@ -5,12 +5,16 @@ import mysql.connector
 import requests
 import openai
 
+# ---------------------- FLASK SETUP ---------------------- #
 app = Flask(__name__)
 
-# Enable CORS for your domains
-CORS(app, origins=["https://ashtavinayak.net", "https://www.ashtavinayak.net"])
+# Enable CORS for both domains and allow preflight OPTIONS requests
+CORS(app, resources={r"/*": {"origins": [
+    "https://ashtavinayak.net",
+    "https://www.ashtavinayak.net"
+]}}, supports_credentials=True)
 
-# Set OpenAI API key
+# ---------------------- OPENAI SETUP ---------------------- #
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # ---------------------- DATABASE CONNECTION ---------------------- #
@@ -22,35 +26,25 @@ def get_db_connection():
             password=os.getenv("DB_PASSWORD"),
             database=os.getenv("DB_NAME")
         )
-    except mysql.connector.Error as err:
-        print(f"[DB ERROR] Connection failed: {err}")
+    except mysql.connector.Error as e:
+        print(f"Database connection error: {e}")
         return None
 
 # ---------------------- SEARCH TRIPS ---------------------- #
 def search_trips(keyword):
-    results = []
     conn = get_db_connection()
-    if not conn:
-        return results  # DB connection failed, return empty list
-
-    try:
-        cursor = conn.cursor(dictionary=True)
-        like_kw = f"%{keyword}%"
-        query = """
-            SELECT id, name, duration, cost, inclusions, start_day, contact
-            FROM trips
-            WHERE name LIKE %s OR duration LIKE %s OR inclusions LIKE %s OR cost LIKE %s
-        """
-        cursor.execute(query, (like_kw, like_kw, like_kw, like_kw))
-        results = cursor.fetchall()
-    except mysql.connector.Error as err:
-        print(f"[DB ERROR] search_trips failed: {err}")
-    finally:
-        try:
-            cursor.close()
-            conn.close()
-        except:
-            pass
+    if conn is None:
+        return []
+    cursor = conn.cursor(dictionary=True)
+    like_kw = f"%{keyword}%"
+    query = """
+        SELECT id, name, duration, cost, inclusions, start_day, contact
+        FROM trips
+        WHERE name LIKE %s OR duration LIKE %s OR inclusions LIKE %s OR cost LIKE %s
+    """
+    cursor.execute(query, (like_kw, like_kw, like_kw, like_kw))
+    results = cursor.fetchall()
+    conn.close()
     return results
 
 # ---------------------- SEARCH NEARBY TEMPLES ---------------------- #
@@ -74,10 +68,9 @@ def search_nearby_temples(lat, lng):
                 })
         return temples
     except Exception as e:
-        print(f"[API ERROR] Google Maps API failed: {e}")
-        return []
+        return [{"error": str(e)}]
 
-# ---------------------- GET OPENAI RESPONSE ---------------------- #
+# ---------------------- OPENAI FALLBACK ---------------------- #
 def get_openai_response(prompt):
     try:
         response = openai.ChatCompletion.create(
@@ -86,16 +79,18 @@ def get_openai_response(prompt):
                 {"role": "system", "content": "You are a helpful travel assistant for Ashtavinayak tours."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=200
+            max_tokens=300
         )
         return response.choices[0].message["content"].strip()
     except Exception as e:
-        print(f"[OPENAI ERROR] {e}")
-        return "I'm having trouble processing your request right now."
+        return f"Sorry, I couldn't process your request. ({str(e)})"
 
 # ---------------------- CHAT ENDPOINT ---------------------- #
-@app.route("/chat", methods=["POST"])
+@app.route("/chat", methods=["POST", "OPTIONS"])
 def chat():
+    if request.method == "OPTIONS":
+        return jsonify({"status": "ok"}), 200
+
     data = request.get_json()
     user_message = data.get("message", "").strip()
     lat = data.get("lat")
@@ -113,7 +108,7 @@ def chat():
         ])
         return jsonify({"reply": f"Here are some trips matching your search:\n{trip_list}"})
 
-    # 2. Search temples nearby if lat/lng provided
+    # 2. Search temples nearby
     if lat and lng:
         temples = search_nearby_temples(lat, lng)
         if temples:
@@ -129,5 +124,6 @@ def chat():
 def home():
     return jsonify({"status": "ok", "message": "Travel chatbot is running."})
 
+# ---------------------- ENTRY POINT ---------------------- #
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

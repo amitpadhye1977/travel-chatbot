@@ -1,5 +1,91 @@
-fetch('https://travel-chatbot-lwuq.onrender.com/chat', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({message: userInput})
-})
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Trip Chatbot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f2f2f2;
+            margin: 0;
+            padding: 0;
+        }
+        .chat-container {
+            width: 100%;
+            max-width: 600px;
+            margin: 50px auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        .messages {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        .user-msg, .bot-msg {
+            margin: 10px 0;
+        }
+        .user-msg {
+            text-align: right;
+            color: blue;
+        }
+        .bot-msg {
+            text-align: left;
+            color: green;
+        }
+        input[type="text"] {
+            width: 80%;
+            padding: 10px;
+        }
+        button {
+            padding: 10px 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <h2>Trip Chatbot</h2>
+        <div class="messages" id="chat-box"></div>
+        <input type="text" id="user-input" placeholder="Ask about a trip...">
+        <button onclick="sendMessage()">Send</button>
+    </div>
+
+    <script>
+        async function sendMessage() {
+            const input = document.getElementById('user-input');
+            const chatBox = document.getElementById('chat-box');
+            const userText = input.value.trim();
+
+            if (!userText) return;
+
+            // Show user message
+            chatBox.innerHTML += `<div class="user-msg">You: ${userText}</div>`;
+            input.value = "";
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            try {
+                // 🔄 Update this with your Render backend URL
+                const response = await fetch('https://your-backend.onrender.com/chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ message: userText })
+                });
+
+                const data = await response.json();
+                const botReply = data.reply;
+
+                // Show bot reply
+                chatBox.innerHTML += `<div class="bot-msg">Bot: ${botReply}</div>`;
+                chatBox.scrollTop = chatBox.scrollHeight;
+
+            } catch (error) {
+                chatBox.innerHTML += `<div class="bot-msg">Bot: Error getting reply. Please try again.</div>`;
+            }
+        }
+    </script>
+</body>
+</html>

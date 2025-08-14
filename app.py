@@ -33,7 +33,7 @@ def search_trips(keyword):
         FROM trips
         WHERE name LIKE %s OR duration LIKE %s OR inclusions LIKE %s OR cost LIKE %s
     """
-    cursor.execute(query, (like_kw, like_kw, like_kw))
+    cursor.execute(query, (like_kw, like_kw, like_kw, like_kw))
     results = cursor.fetchall()
     conn.close()
     return results

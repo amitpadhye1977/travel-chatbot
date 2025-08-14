@@ -29,7 +29,7 @@ def search_trips(keyword):
     cursor = conn.cursor(dictionary=True)
     like_kw = f"%{keyword}%"
     query = """
-        SELECT id, name, description, price
+        SELECT id, name, duration, cost, inclusions, start_day, contact
         FROM trips
         WHERE name LIKE %s OR description LIKE %s
     """
@@ -90,7 +90,7 @@ def chat():
     # 1. Search trips
     trips = search_trips(user_message)
     if trips:
-        trip_list = "\n".join([f"{t['name']} - {t['description']} (₹{t['price']})" for t in trips])
+        trip_list = "\n".join([f"{t['name']} - {t['duration']} (₹{t['cost']} - {t['inclusions']} - {t['start_day']} - {t['contact']})" for t in trips])
         return jsonify({"reply": f"Here are some trips matching your search:\n{trip_list}"})
 
     # 2. Search temples nearby if lat/lng provided

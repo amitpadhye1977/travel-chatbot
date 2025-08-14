@@ -9,10 +9,10 @@ CORS(app)
 # --- Database Connection ---
 def get_db_connection():
     return mysql.connector.connect(
-        host=os.getenv("DB_HOST", "YOUR_DB_HOST"),
-        user=os.getenv("DB_USER", "YOUR_DB_USER"),
-        password=os.getenv("DB_PASS", "YOUR_DB_PASSWORD"),
-        database=os.getenv("DB_NAME", "YOUR_DB_NAME")
+        host=os.getenv("DB_HOST", "DB_HOST"),
+        user=os.getenv("DB_USER", "DB_USER"),
+        password=os.getenv("DB_PASS", "DB_PASSWORD"),
+        database=os.getenv("DB_NAME", "DB_NAME")
     )
 
 # --- Search Trips ---

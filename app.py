@@ -37,14 +37,51 @@ def get_db_connection():
     )
 
 # Search trips table
-def search_trip_info(message):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM trips WHERE name LIKE %s", (f"%{message}%",))
-    results = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return results
+def search_trip_info(query):
+    try:
+        conn = mysql.connector.connect(
+            host=os.environ.get("DB_HOST"),
+            user=os.environ.get("DB_USER"),
+            password=os.environ.get("DB_PASSWORD"),
+            database=os.environ.get("DB_NAME")
+        )
+        cursor = conn.cursor()
+
+        # Flexible keyword search across multiple columns
+        sql = """
+            SELECT name, duration, cost, inclusions, start_day, contact
+            FROM trips
+            WHERE LOWER(name) LIKE %s
+               OR LOWER(inclusions) LIKE %s
+        """
+        keyword = f"%{query.lower()}%"
+        cursor.execute(sql, (keyword, keyword))
+
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        if not results:
+            return "No matching trips found."
+
+        # Format results nicely
+        reply_parts = []
+        for trip in results:
+            trip_name, duration, cost, inclusions, start_day, contact = trip
+            reply_parts.append(
+                f"Trip: {trip_name}\n"
+                f"Duration: {duration}\n"
+                f"Cost: {cost}\n"
+                f"Inclusions: {inclusions}\n"
+                f"Start Day: {start_day}\n"
+                f"Contact: {contact}"
+            )
+
+        return "\n\n".join(reply_parts)
+
+    except Exception as e:
+        print("Error in search_trip_info:", e)
+        return "Error fetching trip details."
 
 # Haversine formula to calculate distance between two coordinates
 def calculate_distance(lat1, lon1, lat2, lon2):

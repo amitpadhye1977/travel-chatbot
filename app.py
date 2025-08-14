@@ -8,8 +8,17 @@ from flask_cors import CORS
 # Flask app
 app = Flask(__name__)
 
-# Allow CORS only from your domain
-CORS(app, resources={r"/chat": {"origins": "https://www.ashtavinayak.net"}})
+# CORS fix: allow both domains, all methods, credentials support
+CORS(
+    app,
+    resources={r"/*": {"origins": [
+        "https://ashtavinayak.net",
+        "https://www.ashtavinayak.net"
+    ]}},
+    supports_credentials=True,
+    allow_headers=["Content-Type"],
+    methods=["GET", "POST", "OPTIONS"]
+)
 
 # Load environment variables
 DB_HOST = os.getenv("DB_HOST")

@@ -31,7 +31,7 @@ def search_trips(keyword):
     query = """
         SELECT id, name, duration, cost, inclusions, start_day, contact
         FROM trips
-        WHERE name LIKE %s OR description LIKE %s
+        WHERE name LIKE %s OR duration LIKE %s OR inclusions LIKE %s OR cost LIKE %s
     """
     cursor.execute(query, (like_kw, like_kw))
     results = cursor.fetchall()

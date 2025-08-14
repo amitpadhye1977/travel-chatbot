@@ -1,100 +1,114 @@
+import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import mysql.connector
-import os
+import requests
+import openai
 
+# Initialize Flask
 app = Flask(__name__)
-CORS(app)
 
-# --- Database Connection ---
+# Enable CORS for your domains
+CORS(app, origins=["https://ashtavinayak.net", "https://www.ashtavinayak.net"])
+
+# Set OpenAI API key
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# ---------------------- DATABASE CONNECTION ---------------------- #
 def get_db_connection():
     return mysql.connector.connect(
-        host=os.getenv("DB_HOST", "DB_HOST"),
-        user=os.getenv("DB_USER", "DB_USER"),
-        password=os.getenv("DB_PASS", "DB_PASSWORD"),
-        database=os.getenv("DB_NAME", "DB_NAME")
+        host=os.getenv("DB_HOST"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASS"),
+        database=os.getenv("DB_NAME")
     )
 
-# --- Search Trips ---
+# ---------------------- SEARCH TRIPS ---------------------- #
 def search_trips(keyword):
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-
     like_kw = f"%{keyword}%"
     query = """
-        SELECT name, duration, cost, inclusions, start_day, contact
+        SELECT id, name, description, price
         FROM trips
-        WHERE name LIKE %s OR inclusions LIKE %s OR start_day LIKE %s
-    """
-    cursor.execute(query, (like_kw, like_kw, like_kw))
-    results = cursor.fetchall()
-
-    cursor.close()
-    conn.close()
-    return results
-
-# --- Search Pickup Points (Temples) ---
-def search_temple_locations(keyword):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    like_kw = f"%{keyword}%"
-    query = """
-        SELECT name, address, latitude, longitude
-        FROM pickuppoints
-        WHERE name LIKE %s OR address LIKE %s
+        WHERE name LIKE %s OR description LIKE %s
     """
     cursor.execute(query, (like_kw, like_kw))
     results = cursor.fetchall()
-
-    cursor.close()
     conn.close()
     return results
 
-# --- Chat Endpoint ---
+# ---------------------- SEARCH NEARBY TEMPLES ---------------------- #
+def search_nearby_temples(lat, lng):
+    api_key = os.getenv("GOOGLE_MAPS_API_KEY")
+    url = (
+        f"https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+        f"?location={lat},{lng}&radius=5000&type=hindu_temple&key={api_key}"
+    )
+    try:
+        response = requests.get(url)
+        data = response.json()
+        temples = []
+        if data.get("results"):
+            for place in data["results"]:
+                temples.append({
+                    "name": place.get("name"),
+                    "address": place.get("vicinity"),
+                    "latitude": place["geometry"]["location"]["lat"],
+                    "longitude": place["geometry"]["location"]["lng"]
+                })
+        return temples
+    except Exception as e:
+        return [{"error": str(e)}]
+
+# ---------------------- GET OPENAI RESPONSE ---------------------- #
+def get_openai_response(prompt):
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a helpful travel assistant for Ashtavinayak tours."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=200
+        )
+        return response.choices[0].message["content"].strip()
+    except Exception as e:
+        return f"Error with OpenAI API: {str(e)}"
+
+# ---------------------- CHAT ENDPOINT ---------------------- #
 @app.route("/chat", methods=["POST"])
 def chat():
-    try:
-        user_message = request.json.get("message", "").strip()
+    data = request.get_json()
+    user_message = data.get("message", "").strip()
+    lat = data.get("lat")
+    lng = data.get("lng")
 
-        if not user_message:
-            return jsonify({"response": "Please type something."})
+    if not user_message:
+        return jsonify({"reply": "Please enter a message."})
 
-        # Temple search trigger
-        if "temple" in user_message.lower() or "pickup" in user_message.lower():
-            temples = search_temple_locations(user_message)
-            if temples:
-                response = "Here are the locations I found:\n\n"
-                for t in temples:
-                    maps_link = f"https://www.google.com/maps?q={t['latitude']},{t['longitude']}"
-                    response += f"- {t['name']} ({t['address']})\n  📍 [View on Google Maps]({maps_link})\n\n"
-            else:
-                response = "I couldn't find any matching temple or pickup point."
+    # 1. Search trips
+    trips = search_trips(user_message)
+    if trips:
+        trip_list = "\n".join([f"{t['name']} - {t['description']} (₹{t['price']})" for t in trips])
+        return jsonify({"reply": f"Here are some trips matching your search:\n{trip_list}"})
 
-        # Trip search trigger
-        elif "trip" in user_message.lower() or "tour" in user_message.lower():
-            trips = search_trips(user_message)
-            if trips:
-                response = "Here are the trips matching your search:\n\n"
-                for trip in trips:
-                    response += (
-                        f"- {trip['name']} ({trip['duration']}) - ₹{trip['cost']}\n"
-                        f"  Inclusions: {trip['inclusions']}\n"
-                        f"  Start Day: {trip['start_day']}\n"
-                        f"  Contact: {trip['contact']}\n\n"
-                    )
-            else:
-                response = "I couldn't find any trips matching your search."
+    # 2. Search temples nearby if lat/lng provided
+    if lat and lng:
+        temples = search_nearby_temples(lat, lng)
+        if temples:
+            temple_list = "\n".join([f"{t['name']} - {t['address']}" for t in temples])
+            return jsonify({"reply": f"Nearby temples:\n{temple_list}"})
 
-        else:
-            response = "I can help you with trips or temple/pickup locations. Please try asking about those."
+    # 3. Fallback to OpenAI
+    openai_reply = get_openai_response(user_message)
+    return jsonify({"reply": openai_reply})
 
-        return jsonify({"response": response})
+# ---------------------- HEALTH CHECK ---------------------- #
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({"status": "ok", "message": "Travel chatbot is running."})
 
-    except Exception as e:
-        print("Error in /chat:", e)
-        return jsonify({"response": f"An error occurred: {str(e)}"}), 500
-
-
+# Gunicorn entry point
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

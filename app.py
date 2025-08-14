@@ -1,9 +1,181 @@
-import os
-import math
-import mysql.connector
-import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import mysql.connector
+import os
+import requests
+import math
+
+app = Flask(__name__)
+
+# Allow CORS for both main and www domain
+CORS(app, resources={
+    r"/*": {
+        "origins": [
+            "https://ashtavinayak.net",
+            "https://www.ashtavinayak.net"
+        ]
+    }
+})
+
+# Get DB and API keys from environment variables
+DB_HOST = os.environ.get("DB_HOST")
+DB_USER = os.environ.get("DB_USER")
+DB_PASSWORD = os.environ.get("DB_PASSWORD")
+DB_NAME = os.environ.get("DB_NAME")
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_API_KEY")
+
+
+# ---------- MySQL connection helper ----------
+def get_db_connection():
+    return mysql.connector.connect(
+        host=DB_HOST,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME
+    )
+
+
+# ---------- Trip search ----------
+def search_trip_info(query):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        sql = """
+            SELECT name, duration, cost, inclusions, start_day, contact
+            FROM trips
+            WHERE LOWER(name) LIKE %s
+               OR LOWER(inclusions) LIKE %s
+        """
+        keyword = f"%{query.lower()}%"
+        cursor.execute(sql, (keyword, keyword))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        trips_list = []
+        for row in rows:
+            trips_list.append({
+                "name": row[0],
+                "duration": row[1],
+                "cost": row[2],
+                "inclusions": row[3],
+                "start_day": row[4],
+                "contact": row[5]
+            })
+
+        return trips_list
+    except Exception as e:
+        print("Error in search_trip_info:", e)
+        return []
+
+
+# ---------- Haversine formula to calculate distance ----------
+def haversine_distance(lat1, lon1, lat2, lon2):
+    R = 6371  # Earth radius in KM
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lon2 - lon1)
+    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
+    return R * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
+
+
+# ---------- Pickup search using Google Maps ----------
+def get_coordinates_from_place(place_name):
+    try:
+        url = "https://maps.googleapis.com/maps/api/geocode/json"
+        params = {"address": place_name, "key": GOOGLE_MAPS_API_KEY}
+        res = requests.get(url, params=params).json()
+        if res["status"] == "OK":
+            location = res["results"][0]["geometry"]["location"]
+            return location["lat"], location["lng"]
+        return None, None
+    except Exception as e:
+        print("Error in get_coordinates_from_place:", e)
+        return None, None
+
+
+def find_nearest_pickup(user_place):
+    try:
+        user_lat, user_lon = get_coordinates_from_place(user_place)
+        if user_lat is None or user_lon is None:
+            return None
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, description, latitude, longitude FROM pickuppoints")
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        nearest = None
+        min_dist = float("inf")
+        for row in rows:
+            dist = haversine_distance(user_lat, user_lon, row[2], row[3])
+            if dist < min_dist:
+                min_dist = dist
+                nearest = {
+                    "name": row[0],
+                    "description": row[1],
+                    "latitude": row[2],
+                    "longitude": row[3],
+                    "distance_km": round(dist, 2)
+                }
+
+        return nearest
+    except Exception as e:
+        print("Error in find_nearest_pickup:", e)
+        return None
+
+
+# ---------- Chat endpoint ----------
+@app.route("/chat", methods=["POST"])
+def chat():
+    try:
+        data = request.get_json()
+        user_message = data.get("message", "").lower()
+
+        response = ""
+
+        # If "pickup nearby" in message
+        if "pickup nearby" in user_message:
+            place = user_message.replace("pickup nearby", "").strip()
+            nearest_pickup = find_nearest_pickup(place)
+            if nearest_pickup:
+                response += f"Nearest pickup point to {place}:\n"
+                response += f"- {nearest_pickup['name']} ({nearest_pickup['description']})\n"
+                response += f"  Distance: {nearest_pickup['distance_km']} km\n"
+                response += f"  Location: https://maps.google.com/?q={nearest_pickup['latitude']},{nearest_pickup['longitude']}\n"
+            else:
+                response += "Sorry, I couldn't find a nearby pickup point.\n"
+
+        # Trip search
+        elif any(word in user_message for word in ["trip", "tour", "yatra"]):
+            trips = search_trip_info(user_message)
+            if trips:
+                response += "Here are some matching trips:\n"
+                for trip in trips:
+                    response += f"- {trip['name']} ({trip['duration']}) - ₹{trip['cost']}\n"
+                    response += f"  Inclusions: {trip['inclusions']}\n"
+                    response += f"  Start Day: {trip['start_day']}\n"
+                    response += f"  Contact: {trip['contact']}\n\n"
+            else:
+                response += "Sorry, I couldn't find any trips matching your query.\n"
+
+        else:
+            response += "I can help you with trip details or nearest pickup points. Try asking something like:\n"
+            response += '"Tell me about Ashtavinayak yatra" or "Pickup nearby Dahisar".\n'
+
+        return jsonify({"response": response})
+
+    except Exception as e:
+        print("Error in /chat:", e)
+        return jsonify({"response": "An error occurred while processing your request."}), 500
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+
 
 # Flask app
 app = Flask(__name__)

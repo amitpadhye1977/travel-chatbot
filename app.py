@@ -75,14 +75,22 @@ Assistant:
 """
 
     # Generate reply using OpenAI GPT-3.5 or GPT-4
-    response = openai.Completion.create(
-        engine="text-davinci-003",  # Use GPT-3.5
-        prompt=prompt,
+    from openai import OpenAI
+    client = OpenAI()
+    
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",  # or "gpt-4o-mini"
+        messages=[
+            {"role": "system", "content": "You are a helpful travel assistant."},
+            {"role": "user", "content": user_message}
+        ],
         max_tokens=150,
         temperature=0.7
     )
+    bot_reply = response.choices[0].message.content.strip()
 
-    bot_reply = response.choices[0].text.strip()
+
+    
     return jsonify({'reply': bot_reply})
 
 if __name__ == '__main__':

@@ -67,7 +67,7 @@ def search_trips(keyword):
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
     query = """
-        SELECT id, DISTINCT('trip_name'), details, cost, duration, trip_date
+        SELECT DISTINCT id, trip_name, details, cost, duration, trip_date
         FROM trips
         WHERE trip_name LIKE %s OR details LIKE %s OR duration LIKE %s
            OR CAST(cost AS CHAR) LIKE %s OR CAST(trip_date AS CHAR) LIKE %s

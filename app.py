@@ -40,7 +40,7 @@ def get_trips():
             database=os.getenv("DB_NAME")
         )
         cursor = conn.cursor()
-        cursor.execute("SELECT name FROM trips")
+        cursor.execute("SELECT trip_name FROM trips")
         trips = [row[0] for row in cursor.fetchall()]
         cursor.close()
         conn.close()

@@ -203,10 +203,6 @@ def chat():
 
     data = request.get_json(silent=True) or {}
     user_message = (data.get("message") or "").strip()
-    language = data.get("language", "en")  # default English
-
-    # Pass language as context to OpenAI
-    prompt = f"Answer in {language} language. User asked: {user_message}"
     
     body_lat = data.get("lat")
     body_lng = data.get("lng")

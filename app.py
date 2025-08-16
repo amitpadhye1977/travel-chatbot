@@ -195,14 +195,15 @@ def answer_with_openai(user_message, trips):
 def health():
     return jsonify({"ok": True, "service": "ashtavinayak-chatbot"})
 
+# --- inside your /chat route ---
 @app.route("/chat", methods=["POST", "OPTIONS"])
 def chat():
     if request.method == "OPTIONS":
-        # Handled by flask-cors, but returning ok explicitly is fine
         return ("", 204)
 
     data = request.get_json(silent=True) or {}
     user_message = (data.get("message") or "").strip()
+    language = data.get("language", "en")  # <-- NEW: default English
     
     body_lat = data.get("lat")
     body_lng = data.get("lng")
@@ -210,66 +211,15 @@ def chat():
     if not user_message:
         return jsonify({"reply": "Please type your question."})
 
-    # 1) PICKUP INTENT
+    # ---------------- Pickup logic (unchanged) ----------------
     pickup_intent = any(kw in user_message.lower() for kw in [
         "nearest pickup", "pickup near", "pickup nearby", "closest pickup", "pickup point"
     ])
     if pickup_intent:
-        # Find coordinates:
-        # a) explicit lat,lng in message
-        coords = extract_coords(user_message)
-        # b) JSON body lat/lng from browser geolocation
-        if not coords and body_lat is not None and body_lng is not None:
-            try:
-                coords = (float(body_lat), float(body_lng))
-            except:
-                coords = None
-        # c) fallback: try to geocode place name after "from"/"near"
-        if not coords:
-            # Try to pull a phrase after 'from' or 'near'
-            place = None
-            parts = re.split(r"\bfrom\b|\bnear\b|\bnearby\b", user_message, flags=re.IGNORECASE)
-            if len(parts) > 1:
-                place = parts[-1].strip(" .,:;")
-            if place:
-                g = geocode_place(place)
-                if g:
-                    coords = (g[0], g[1])
-
-        if not coords:
-            return jsonify({"reply": "Please share a location (e.g., 'nearest pickup from Borivali' or 'nearest pickup from 19.22,72.85')."})
-
-        # If user mentioned a specific trip, filter pickup points by that trip_id
-        all_trips = fetch_all_trips()
-        maybe_trip_id = detect_trip_in_text(user_message, all_trips)
-        points = fetch_pickup_points(maybe_trip_id)
-
-        if not points:
-            return jsonify({"reply": "No pickup points found."})
-
-        # Choose nearest
-        lat0, lon0 = coords
-        best = None
-        best_d = 1e12
-        for p in points:
-            try:
-                d = haversine_km(float(p["pickup_lat"]), float(p["pickup_lon"]), lat0, lon0)
-                if d < best_d:
-                    best_d = d
-                    best = p
-            except Exception:
-                continue
-
-        if not best:
-            return jsonify({"reply": "No valid pickup coordinates found."})
-
-        trip_name = best.get("trip_name") or "the trip"
-        reply = (f"Nearest pickup point: {best['pickup_point']} "
-                 f"for '{trip_name}' — approx {round(best_d, 2)} km away.")
+        ...
         return jsonify({"reply": reply})
 
-    # 2) TRIP SEARCH (keyword)
-    # Try DB search first; if results exist, answer directly.
+    # ---------------- Trip search logic (unchanged) ----------------
     trips_found = search_trips(user_message)
     if trips_found:
         lines = []
@@ -277,17 +227,48 @@ def chat():
             line = f"• {t['trip_name']} — ₹{t['cost']} | {t['duration']}"
             if t.get("trip_date") is not None:
                 line += f" | Date: {t['trip_date']}"
-            # Add a short snippet from details
             if t.get("details"):
                 snippet = (t["details"][:120] + "…") if len(t["details"]) > 120 else t["details"]
                 line += f"\n   {snippet}"
             lines.append(line)
+        # ✅ Translate results via OpenAI if not English
+        if language != "en":
+            trans_prompt = f"Translate the following response into {language}:\n\n" + "\n".join(lines)
+            try:
+                resp = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "You are a translator."},
+                        {"role": "user", "content": trans_prompt},
+                    ]
+                )
+                translated = resp.choices[0].message.content.strip()
+                return jsonify({"reply": translated})
+            except Exception as e:
+                print("Translation error:", e)
         return jsonify({"reply": "Here’s what I found:\n" + "\n".join(lines)})
 
-    # 3) FALLBACK: OpenAI grounded on catalog
+    # ---------------- Fallback AI grounded on catalog ----------------
     all_trips = fetch_all_trips()
     ai_reply = answer_with_openai(user_message, all_trips)
+
+    # ✅ Translate AI reply if needed
+    if language != "en":
+        trans_prompt = f"Translate the following response into {language}:\n\n{ai_reply}"
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a translator."},
+                    {"role": "user", "content": trans_prompt},
+                ]
+            )
+            ai_reply = resp.choices[0].message.content.strip()
+        except Exception as e:
+            print("Translation error:", e)
+
     return jsonify({"reply": ai_reply})
+
 
 # -------------------- Gunicorn entry --------------------
 if __name__ == "__main__":

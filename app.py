@@ -40,7 +40,7 @@ def get_trips():
             database=os.getenv("DB_NAME")
         )
         cursor = conn.cursor()
-        cursor.execute("SELECT trip_name FROM trips")
+        cursor.execute("SELECT trip_name FROM trips Group By trip_name")
         trips = [row[0] for row in cursor.fetchall()]
         cursor.close()
         conn.close()
@@ -55,7 +55,7 @@ def get_trips():
 def fetch_all_trips():
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
-    cur.execute("SELECT DISTINCT id, trip_name, details, cost, duration, trip_date FROM trips")
+    cur.execute("SELECT id, trip_name, details, cost, duration, trip_date FROM trips Group By trip_name")
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -67,11 +67,11 @@ def search_trips(keyword):
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
     query = """
-        SELECT DISTINCT id, trip_name, details, cost, duration, trip_date
+        SELECT id, trip_name, details, cost, duration, trip_date
         FROM trips
         WHERE trip_name LIKE %s OR details LIKE %s OR duration LIKE %s
            OR CAST(cost AS CHAR) LIKE %s OR CAST(trip_date AS CHAR) LIKE %s
-        ORDER BY trip_date IS NULL, trip_date ASC, trip_name ASC
+        ORDER BY trip_date IS NULL, trip_date ASC, trip_name ASC GROUP BY trip_name
         LIMIT 20
     """
     cur.execute(query, (like, like, like, like, like))

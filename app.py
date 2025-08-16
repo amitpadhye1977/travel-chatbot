@@ -55,7 +55,7 @@ def get_trips():
 def fetch_all_trips():
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
-    cur.execute("SELECT id, trip_name, details, cost, duration, trip_date FROM trips")
+    cur.execute("SELECT DISTINCT id, trip_name, details, cost, duration, trip_date FROM trips")
     rows = cur.fetchall()
     cur.close()
     conn.close()

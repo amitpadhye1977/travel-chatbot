@@ -12,10 +12,8 @@ from openai import OpenAI
 app = Flask(__name__)
 
 # Allow both apex and www on your domain
-CORS(app,
-     resources={r"/chat": {"origins": ["https://ashtavinayak.net", "https://www.ashtavinayak.net"]},
-                r"/": {"origins": ["https://ashtavinayak.net", "https://www.ashtavinayak.net"]}},
-     supports_credentials=False)
+CORS(app, resources={r"/*": {"origins": ["https://ashtavinayak.net"]}})
+
 
 # -------------------- OpenAI --------------------
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))

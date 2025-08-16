@@ -31,6 +31,21 @@ def get_db_connection():
         database=os.getenv("DB_NAME"),
     )
 
+# --- Fetch Trips ---
+@app.route("/trips", methods=["GET"])
+def get_trips():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT name FROM trips")
+        trips = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return jsonify([trip["name"] for trip in trips])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # -------------------- Helpers: Trips --------------------
 def fetch_all_trips():
     conn = get_db_connection()

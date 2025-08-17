@@ -71,7 +71,7 @@ def search_trips(keyword):
         FROM trips
         WHERE trip_name LIKE %s OR details LIKE %s OR duration LIKE %s
            OR CAST(cost AS CHAR) LIKE %s OR CAST(trip_date AS CHAR) LIKE %s
-        ORDER BY trip_date IS NULL, trip_date ASC, trip_name ASC GROUP BY trip_name
+        ORDER BY trip_date IS NULL, trip_date ASC, trip_name ASC
         LIMIT 20
     """
     cur.execute(query, (like, like, like, like, like))

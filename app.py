@@ -39,7 +39,8 @@ def get_trips():
             password=os.getenv("DB_PASSWORD"),
             database=os.getenv("DB_NAME")
         )
-        cursor = conn.cursor()
+       
+        cursor = conn.cursor(dictionary=True)  # 👈 ensures rows are dicts
         cursor.execute("SELECT trip_name FROM trips Group By trip_name")
         rows = cursor.fetchall()
 

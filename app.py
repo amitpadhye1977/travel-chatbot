@@ -49,7 +49,7 @@ def get_trips():
         for row in rows:
             trips.append({
                 "trip": row["trip_name"],
-                "cost": row["cost"]}",
+                "cost": row["cost"]",
                 "duration": row["duration"],
                 "date": row["trip_date"],
                 "details": row["details"]

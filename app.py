@@ -165,9 +165,9 @@ def answer_with_openai(user_message, trips):
     ]) or "No trips available."
 
     system_prompt = (
-        "You are a helpful travel assistant for Ashtavinayak Tours. "
+        "You are a helpful travel assistant for Ashtavinayak Trips organised by Ashtavinayak Dot Net. "
         "Answer strictly using the provided trips catalog. "
-        "If something isn't in the catalog, say you don't have that info."
+        "If something isn't in the catalog, answer relevant information about Ashtavinayak Tour and Ashtavinayak Dot Net company. Do Not answer anything unrelated"
     )
     user_prompt = (
         f"Trips catalog:\n{catalog}\n\n"
@@ -287,6 +287,8 @@ def chat():
     all_trips = fetch_all_trips()
     ai_reply = answer_with_openai(user_message, all_trips)
     return jsonify({"reply": ai_reply})
+
+
 
 # -------------------- Gunicorn entry --------------------
 if __name__ == "__main__":

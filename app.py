@@ -41,10 +41,20 @@ def get_trips():
         )
         cursor = conn.cursor()
         cursor.execute("SELECT trip_name FROM trips Group By trip_name")
-        trips = [row[0] for row in cursor.fetchall()]
-        cursor.close()
-        conn.close()
-        return jsonify({"trips": trips})  # wrap inside "trips"
+        rows = cursor.fetchall()
+
+    # structured JSON response
+    trips = []
+    for row in rows:
+        trips.append({
+            "trip": row["trip_name"],
+            "cost": f"₹{row['cost']}",
+            "duration": row["duration"],
+            "date": row["trip_date"],
+            "details": row["details"]
+        })
+
+    return jsonify({"trips": trips})
     except Exception as e:
         print("Error fetching trips:", e)  # log for debugging
         return jsonify({"error": str(e)}), 500

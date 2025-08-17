@@ -167,8 +167,9 @@ def answer_with_openai(user_message, trips):
     system_prompt = (
         "You are a helpful travel assistant for Ashtavinayak Trips organised by Ashtavinayak Dot Net. "
         "Answer strictly using the provided trips catalog. "
-        "If something isn't in the catalog, answer relevant information about Ashtavinayak Tour and Ashtavinayak Dot Net company. Do Not answer anything unrelated"
-        "If any question related to Ashtavinayak Dot Net Travels as a company and its owner name or contact information needs to be searched from www.ashtavinayak.net website content only"
+        "If something isn't in the catalog, answer relevant information about Ashtavinayak Tour and Ashtavinayak Dot Net company.
+        If any question related to Ashtavinayak Dot Net Travels as a company and its owner name or contact information needs to be searched from www.ashtavinayak.net website content only"
+        "If unsure, say: Please check the official website ashtavinayak.net for the latest details."
     )
     user_prompt = (
         f"Trips catalog:\n{catalog}\n\n"

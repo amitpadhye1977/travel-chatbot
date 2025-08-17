@@ -39,23 +39,12 @@ def get_trips():
             password=os.getenv("DB_PASSWORD"),
             database=os.getenv("DB_NAME")
         )
-       
-        cursor = conn.cursor(dictionary=True)  # 👈 ensures rows are dicts
-        cursor.execute("SELECT * FROM trips Group By trip_name")
-        rows = cursor.fetchall()
-
-        # structured JSON response
-        trips = []
-        for row in rows:
-            trips.append({
-                "trip": row["trip_name"],
-                "cost": row["cost"],
-                "duration": row["duration"],
-                "date": row["trip_date"],
-                "details": row["details"]
-            })
-
-        return jsonify({"trips": trips})
+        cursor = conn.cursor()
+        cursor.execute("SELECT trip_name FROM trips Group By trip_name")
+        trips = [row[0] for row in cursor.fetchall()]
+        cursor.close()
+        conn.close()
+        return jsonify({"trips": trips})  # wrap inside "trips"
     except Exception as e:
         print("Error fetching trips:", e)  # log for debugging
         return jsonify({"error": str(e)}), 500

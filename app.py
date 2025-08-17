@@ -41,7 +41,7 @@ def get_trips():
         )
        
         cursor = conn.cursor(dictionary=True)  # 👈 ensures rows are dicts
-        cursor.execute("SELECT trip_name FROM trips Group By trip_name")
+        cursor.execute("SELECT * FROM trips Group By trip_name")
         rows = cursor.fetchall()
 
         # structured JSON response

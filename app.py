@@ -317,7 +317,7 @@ def chat():
         trip_name = best.get("trip_name") or "the trip"
         reply = (f"Nearest pickup point: {best['pickup_point']} "
                  f"for '{trip_name}' — approx {round(best_d, 2)} km away.")
-        return jsonify({"reply": reply}, "lang": lang)
+        return jsonify({"reply": reply, "lang": lang})
 
     # 2) TRIP SEARCH (keyword)
     # Try DB search first; if results exist, answer directly.

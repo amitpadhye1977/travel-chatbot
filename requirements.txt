@@ -7,4 +7,4 @@ mysql-connector-python==9.0.0
 requests==2.32.3
 openai>=1.30.0
 gunicorn==22.0.0
-
+beautifulsoup4

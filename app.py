@@ -32,32 +32,29 @@ def get_db_connection():
 
 def get_contact_info():
     try:
-        url = "https://ashtavinayak.net/contactus.php"
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
+        URL = "https://ashtavinayak.net/contactus.php"
+        page = requests.get(URL, timeout=10)
+        soup = BeautifulSoup(page.text, "html.parser")
 
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        # Example extraction → adjust based on your actual HTML structure
-        phone = soup.find("a", href=lambda x: x and "tel:" in x).text.strip()
-        email = soup.find("a", href=lambda x: x and "mailto:" in x).text.strip()
+        phone = soup.find("a", href=lambda x: x and "tel:" in x)
+        email = soup.find("a", href=lambda x: x and "mailto:" in x)
         
         # If address is inside a div with class "contact-address"
-        address_div = soup.find("ul", class_="contact-address")
+        address_div = soup.find("div", class_="col_1_3")
         address = address_div.get_text(strip=True) if address_div else "Address not found"    
     
         return {
             "phone": phone,
             "email": email,
             "address": address,
-            "website": url
+            "website": URL
         }
     except Exception as e:
         return {
             "phone": "Not available",
             "email": "Not available",
             "address": "Not available",
-            "website": url
+            "website": URL
         }
 
 

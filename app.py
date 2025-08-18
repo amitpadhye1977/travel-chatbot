@@ -173,7 +173,7 @@ def answer_with_openai(user_message, trips):
     user_prompt = (
         f"Trips catalog:\n{catalog}\n\n"
         f"User ask: {user_message}\n\n"
-        "Reply clearly with bullet points; include trip names, cost, duration, and date when relevant."
+        "Reply smartly and clearly with relevance along with bullet points."
     )
 
     try:

@@ -81,6 +81,14 @@ def get_trips():
 
 
 # -------------------- Helpers: Trips --------------------
+
+def detect_language(text):
+    try:
+        lang = detect(text)   # returns like 'en', 'hi', 'mr'
+        return lang
+    except:
+        return "unknown"
+
 def fetch_all_trips():
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
@@ -233,6 +241,11 @@ def chat():
 
     data = request.get_json(silent=True) or {}
     user_message = (data.get("message") or "").strip()
+
+     # 🔹 Step 1: Detect language
+    lang = detect_language(user_query)
+    print(f"Detected Language: {lang}")
+    
     body_lat = data.get("lat")
     body_lng = data.get("lng")
 
@@ -246,7 +259,7 @@ def chat():
     
 
     if not user_message:
-        return jsonify({"reply": "Please type your question."})
+        return jsonify({"reply": "Please type your question.", "lang": lang})
 
     # 1) PICKUP INTENT
     pickup_intent = any(kw in user_message.lower() for kw in [
@@ -275,7 +288,7 @@ def chat():
                     coords = (g[0], g[1])
 
         if not coords:
-            return jsonify({"reply": "Please share a location (e.g., 'nearest pickup from Borivali' or 'nearest pickup from 19.22,72.85')."})
+            return jsonify({"reply": "Please share a location (e.g., 'nearest pickup from Borivali' or 'nearest pickup from 19.22,72.85').", "lang": lang})
 
         # If user mentioned a specific trip, filter pickup points by that trip_id
         all_trips = fetch_all_trips()
@@ -283,7 +296,7 @@ def chat():
         points = fetch_pickup_points(maybe_trip_id)
 
         if not points:
-            return jsonify({"reply": "No pickup points found."})
+            return jsonify({"reply": "No pickup points found.", "lang": lang})
 
         # Choose nearest
         lat0, lon0 = coords
@@ -299,12 +312,12 @@ def chat():
                 continue
 
         if not best:
-            return jsonify({"reply": "No valid pickup coordinates found."})
+            return jsonify({"reply": "No valid pickup coordinates found.", "lang": lang})
 
         trip_name = best.get("trip_name") or "the trip"
         reply = (f"Nearest pickup point: {best['pickup_point']} "
                  f"for '{trip_name}' — approx {round(best_d, 2)} km away.")
-        return jsonify({"reply": reply})
+        return jsonify({"reply": reply}, "lang": lang)
 
     # 2) TRIP SEARCH (keyword)
     # Try DB search first; if results exist, answer directly.
@@ -320,12 +333,12 @@ def chat():
                 snippet = (t["details"][:120] + "…") if len(t["details"]) > 120 else t["details"]
                 line += f"\n   {snippet}"
             lines.append(line)
-        return jsonify({"reply": "Here’s what I found:\n" + "\n".join(lines)})
+        return jsonify({"reply": "Here’s what I found:\n" + "\n".join(lines), "lang": lang})
 
     # 3) FALLBACK: OpenAI grounded on catalog
     all_trips = fetch_all_trips()
     ai_reply = answer_with_openai(user_message, all_trips)
-    return jsonify({"reply": ai_reply})
+    return jsonify({"reply": ai_reply, "lang": lang})
 
 @app.route("/contact", methods=["GET"])
 def contact():

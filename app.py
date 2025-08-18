@@ -239,7 +239,7 @@ def chat():
     body_lat = data.get("lat")
     body_lng = data.get("lng")
 
-     if any(word in user_message for word in ["contact", "phone", "email", "office", "address"]):
+    if any(word in user_message for word in ["contact", "phone", "email", "office", "address"]):
         contact_info = get_contact_info()
         return jsonify({
             "type": "contact",

@@ -46,12 +46,12 @@ def get_contact_info():
         address_div = soup.find("div", class_="contact-address")
         address = address_div.get_text(strip=True) if address_div else "Address not found"    
     
-    return {
+        return {
             "phone": phone,
             "email": email,
             "address": address,
             "website": url
-    }
+        }
     except Exception as e:
         return {
             "phone": "Not available",

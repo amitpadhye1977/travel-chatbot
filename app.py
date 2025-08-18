@@ -43,7 +43,7 @@ def get_contact_info():
         email = soup.find("a", href=lambda x: x and "mailto:" in x).text.strip()
         
         # If address is inside a div with class "contact-address"
-        address_div = soup.find("div", class_="contact-address")
+        address_div = soup.find("ul", class_="contact-address")
         address = address_div.get_text(strip=True) if address_div else "Address not found"    
     
         return {

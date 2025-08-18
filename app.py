@@ -3,6 +3,7 @@ import re
 import math
 import json
 import requests
+from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import mysql.connector
@@ -28,6 +29,21 @@ def get_db_connection():
         password=password,
         database=os.getenv("DB_NAME"),
     )
+
+    return {
+            "phone": phone,
+            "email": email,
+            "address": address,
+            "website": url
+    }
+    except Exception as e:
+        return {
+            "phone": "Not available",
+            "email": "Not available",
+            "address": "Not available",
+            "website": url
+        }
+
 
 # --- Fetch Trips ---
 @app.route("/trips", methods=["GET"])
@@ -207,6 +223,15 @@ def chat():
     body_lat = data.get("lat")
     body_lng = data.get("lng")
 
+     if any(word in user_message for word in ["contact", "phone", "email", "office", "address"]):
+        contact_info = get_contact_info()
+        return jsonify({
+            "type": "contact",
+            "data": f"You can contact Ashtavinayak Dot Net at 📞 {contact_info['phone']}, ✉️ {contact_info['email']}. "
+                    f"Our office: {contact_info['address']}. More info: {contact_info['website']}"
+        })
+    
+
     if not user_message:
         return jsonify({"reply": "Please type your question."})
 
@@ -289,7 +314,9 @@ def chat():
     ai_reply = answer_with_openai(user_message, all_trips)
     return jsonify({"reply": ai_reply})
 
-
+@app.route("/contact", methods=["GET"])
+def contact():
+    return jsonify(get_contact_info())
 
 # -------------------- Gunicorn entry --------------------
 if __name__ == "__main__":

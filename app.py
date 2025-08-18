@@ -243,7 +243,7 @@ def chat():
     user_message = (data.get("message") or "").strip()
 
      # 🔹 Step 1: Detect language
-    lang = detect_language(user_query)
+    lang = detect_language(user_message)
     print(f"Detected Language: {lang}")
     
     body_lat = data.get("lat")

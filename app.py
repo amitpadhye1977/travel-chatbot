@@ -8,6 +8,9 @@ from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import mysql.connector
 from openai import OpenAI
+from langdetect import detect, DetectorFactory
+DetectorFactory.seed = 0  # to keep detection consistent
+
 
 # -------------------- Flask & CORS --------------------
 app = Flask(__name__)

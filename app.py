@@ -205,15 +205,15 @@ def answer_with_openai(user_message, trips):
     ]) or "No trips available."
 
     system_prompt = (
-        "You are a helpful travel assistant for Ashtavinayak Trips organised by Ashtavinayak Dot Net. "
-        "Answer smartly and like a customer support executive using the provided trips catalog. "
-        "If something isn't in the catalog, answer relevant information about Ashtavinayak Tour and Ashtavinayak Dot Net company. If any question related to Ashtavinayak Dot Net Travels as a company and its owner name, mobile, email needs to be fetched from www.ashtavinayak.net website and displayed exactly as fetched "
-        "If unsure, say Please check the official website www.ashtavinayak.net for the latest details."
+        "You are a helpful travel assistant for Ashtavinayak Trips organised by Ashtavinayak Dot Net. Detected language: {lang}"
+        "Answer smartly and like a customer support executive using the provided trips catalog. Detected language: {lang} "
+        "If something isn't in the catalog, answer relevant information about Ashtavinayak Tour and Ashtavinayak Dot Net company. If any question related to Ashtavinayak Dot Net Travels as a company and its owner name, mobile, email needs to be fetched from www.ashtavinayak.net website and displayed exactly as fetched. Detected language: {lang} "
+        "If unsure, say Please check the official website www.ashtavinayak.net for the latest details. Detected language: {lang}"
     )
     user_prompt = (
         f"Trips catalog:\n{catalog}\n\n"
         f"User ask: {user_message}\n\n"
-        "Reply smartly and clearly with relevance along with bullet points."
+        "Reply smartly and clearly with relevance along with bullet points. Detected language: {lang}"
     )
 
     try:

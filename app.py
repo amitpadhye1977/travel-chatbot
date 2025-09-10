@@ -221,12 +221,12 @@ def chat():
     body_lng = data.get("lng")
 
     lang = detect_language(user_message)
-    print(f"Detected Language: {lang}")
+    print(f"User message: {user_message}, Detected lang: {lang}")
 
     if not user_message:
         return jsonify({"reply": "Please type your question.", "lang": lang})
 
-    # Contact info intent
+    # ------------------ Contact info ------------------
     if any(word in user_message.lower() for word in ["contact", "phone", "email", "office", "address"]):
         contact_info = get_contact_info()
         return jsonify({
@@ -236,7 +236,7 @@ def chat():
             "lang": lang
         })
 
-    # Pickup intent
+    # ------------------ Pickup intent ------------------
     pickup_intent = any(kw in user_message.lower() for kw in [
         "nearest pickup", "pickup near", "pickup nearby", "closest pickup",
         "pickup point", "pickup point near", "pickup point nearby"
@@ -292,7 +292,7 @@ def chat():
         reply = f"Nearest pickup point: {best['pickup_point']} for '{trip_name}' — approx {round(best_d,2)} km away."
         return jsonify({"reply": reply, "lang": lang})
 
-    # Trip keyword search
+    # ------------------ Trip keyword search ------------------
     trips_found = search_trips(user_message)
     trips_list = []
     for t in trips_found:
@@ -310,7 +310,7 @@ def chat():
     if trips_list:
         return jsonify({"trips": trips_list, "lang": lang})
 
-    # Fallback OpenAI answer
+    # ------------------ Fallback OpenAI ------------------
     all_trips = fetch_all_trips()
     ai_reply = answer_with_openai(user_message, all_trips)
     if not ai_reply:

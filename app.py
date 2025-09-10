@@ -327,16 +327,16 @@ def chat():
     # Try DB search first; if results exist, answer directly.
     trips_found = search_trips(user_message)
     if trips_found:
-    trips_list = []
-    for t in trips_found:
-        trip_dict = {
-            "Trip Name": t['trip_name'],
-            "Cost": f"₹{t['cost']}",
-            "Duration": t['duration'],
-            "Date": t['trip_date'] if t.get("trip_date") else "N/A",
-            "Details": t['details']  # full details
-        }
-        trips_list.append(trip_dict)
+        trips_list = []
+        for t in trips_found:
+            trip_dict = {
+                "Trip Name": t['trip_name'],
+                "Cost": f"₹{t['cost']}",
+                "Duration": t['duration'],
+                "Date": t['trip_date'] if t.get("trip_date") else "N/A",
+                "Details": t['details']  # full details
+            }
+            trips_list.append(trip_dict)
     return jsonify({"trips": trips_list, "lang": lang})
 
     # 3) FALLBACK: OpenAI grounded on catalog

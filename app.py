@@ -11,13 +11,6 @@ from openai import OpenAI
 from langdetect import detect, DetectorFactory
 DetectorFactory.seed = 0  # for consistent detection
 
-def detect_language(text):
-    try:
-        lang = detect(text)   # returns 'en', 'hi', etc.
-        return lang
-    except:
-        return "unknown"
-
 # -------------------- Flask & CORS --------------------
 app = Flask(__name__)
 
@@ -206,6 +199,17 @@ def answer_with_openai(user_message, trips):
 def health():
     return jsonify({"ok": True, "service": "ashtavinayak-chatbot"})
 
+# -------------------- Language detection --------------------
+from langdetect import detect, DetectorFactory
+DetectorFactory.seed = 0  # for consistent detection
+
+def detect_language(text):
+    try:
+        return detect(text)   # returns 'en', 'hi', etc.
+    except:
+        return "unknown"
+
+# -------------------- Chat Route --------------------
 @app.route("/chat", methods=["POST", "OPTIONS"])
 def chat():
     if request.method == "OPTIONS":
@@ -220,6 +224,9 @@ def chat():
     lang = detect_language(user_message)
     print(f"Detected Language: {lang}")
 
+    if not user_message:
+        return jsonify({"reply": "Please type your question.", "lang": lang})
+
     # 🔹 Step 2: Contact intent
     if any(word in user_message.lower() for word in ["contact", "phone", "email", "office", "address"]):
         contact_info = get_contact_info()
@@ -230,12 +237,10 @@ def chat():
             "lang": lang
         })
 
-    if not user_message:
-        return jsonify({"reply": "Please type your question.", "lang": lang})
-
     # 🔹 Step 3: Pickup intent
     pickup_intent = any(kw in user_message.lower() for kw in [
-        "nearest pickup", "pickup near", "pickup nearby", "closest pickup", "pickup point", "pickup point near", "pickup point nearby"
+        "nearest pickup", "pickup near", "pickup nearby", "closest pickup",
+        "pickup point", "pickup point near", "pickup point nearby"
     ])
 
     if pickup_intent:
@@ -247,7 +252,6 @@ def chat():
             except:
                 coords = None
         if not coords:
-            # Fallback: geocode place after 'from' or 'near'
             place = None
             parts = re.split(r"\bfrom\b|\bnear\b|\bnearby\b", user_message, flags=re.IGNORECASE)
             if len(parts) > 1:
@@ -263,7 +267,6 @@ def chat():
                 "lang": lang
             })
 
-        # Detect trip if mentioned
         all_trips = fetch_all_trips()
         maybe_trip_id = detect_trip_in_text(user_message, all_trips)
         points = fetch_pickup_points(maybe_trip_id)

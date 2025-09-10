@@ -199,7 +199,6 @@ def health():
 @app.route("/chat", methods=["POST", "OPTIONS"])
 def chat():
     if request.method == "OPTIONS":
-        # Handled by flask-cors, but returning ok explicitly is fine
         return ("", 204)
 
     data = request.get_json(silent=True) or {}
@@ -207,26 +206,38 @@ def chat():
     body_lat = data.get("lat")
     body_lng = data.get("lng")
 
-    if not user_message:
-        return jsonify({"reply": "Please type your question."})
+    # 🔹 Step 1: Detect language
+    lang = detect_language(user_message)
+    print(f"Detected Language: {lang}")
 
-    # 1) PICKUP INTENT
+    # 🔹 Step 2: Contact intent
+    if any(word in user_message.lower() for word in ["contact", "phone", "email", "office", "address"]):
+        contact_info = get_contact_info()
+        return jsonify({
+            "reply": f"You can contact Ashtavinayak Dot Net at 📞 {contact_info['phone']}, "
+                     f"✉️ {contact_info['email']}. Our office: {contact_info['address']}. "
+                     f"More info: {contact_info['website']}",
+            "lang": lang
+        })
+
+    if not user_message:
+        return jsonify({"reply": "Please type your question.", "lang": lang})
+
+    # 🔹 Step 3: Pickup intent
     pickup_intent = any(kw in user_message.lower() for kw in [
         "nearest pickup", "pickup near", "pickup nearby", "closest pickup", "pickup point", "pickup point near", "pickup point nearby"
     ])
+
     if pickup_intent:
-        # Find coordinates:
-        # a) explicit lat,lng in message
+        # Extract coordinates
         coords = extract_coords(user_message)
-        # b) JSON body lat/lng from browser geolocation
         if not coords and body_lat is not None and body_lng is not None:
             try:
                 coords = (float(body_lat), float(body_lng))
             except:
                 coords = None
-        # c) fallback: try to geocode place name after "from"/"near"
         if not coords:
-            # Try to pull a phrase after 'from' or 'near'
+            # Fallback: geocode place after 'from' or 'near'
             place = None
             parts = re.split(r"\bfrom\b|\bnear\b|\bnearby\b", user_message, flags=re.IGNORECASE)
             if len(parts) > 1:
@@ -237,17 +248,20 @@ def chat():
                     coords = (g[0], g[1])
 
         if not coords:
-            return jsonify({"reply": "Please share a location (e.g., 'nearest pickup from Borivali' or 'nearest pickup from 19.22,72.85')."})
+            return jsonify({
+                "reply": "Please share a location (e.g., 'nearest pickup from Borivali' or 'nearest pickup from 19.22,72.85').",
+                "lang": lang
+            })
 
-        # If user mentioned a specific trip, filter pickup points by that trip_id
+        # Detect trip if mentioned
         all_trips = fetch_all_trips()
         maybe_trip_id = detect_trip_in_text(user_message, all_trips)
         points = fetch_pickup_points(maybe_trip_id)
 
         if not points:
-            return jsonify({"reply": "No pickup points found."})
+            return jsonify({"reply": "No pickup points found.", "lang": lang})
 
-        # Choose nearest
+        # Find nearest
         lat0, lon0 = coords
         best = None
         best_d = 1e12
@@ -261,33 +275,39 @@ def chat():
                 continue
 
         if not best:
-            return jsonify({"reply": "No valid pickup coordinates found."})
+            return jsonify({"reply": "No valid pickup coordinates found.", "lang": lang})
 
-        trip_name = best.get("trip_name") or "the trip"
-        reply = (f"Nearest pickup point: {best['pickup_point']} "
-                 f"for '{trip_name}' — approx {round(best_d, 2)} km away.")
-        return jsonify({"reply": reply})
+        nearest_data = [{
+            "place": best["pickup_point"],
+            "trip": best.get("trip_name") or "the trip",
+            "distance": round(best_d, 2)
+        }]
+        return jsonify({"nearest": nearest_data, "lang": lang})
 
-    # 2) TRIP SEARCH (keyword)
-    # Try DB search first; if results exist, answer directly.
+    # 🔹 Step 4: Trip keyword search
     trips_found = search_trips(user_message)
+    trips_list = []
     if trips_found:
-        lines = []
         for t in trips_found:
-            line = f"• {t['trip_name']} — ₹{t['cost']} | {t['duration']}"
-            if t.get("trip_date") is not None:
-                line += f" | Date: {t['trip_date']}"
-            # Add a short snippet from details
-            if t.get("details"):
-                snippet = (t["details"][:120] + "…") if len(t["details"]) > 120 else t["details"]
-                line += f"\n   {snippet}"
-            lines.append(line)
-        return jsonify({"reply": "Here’s what I found:\n" + "\n".join(lines)})
+            pickups = fetch_pickup_points(trip_id=t['id'])
+            pickup_list = [{"place": p['pickup_point'], "time": ""} for p in pickups]  # optional: add time if available
+            trip_dict = {
+                "name": t['trip_name'],
+                "cost": f"₹{t['cost']}",
+                "duration": t['duration'],
+                "date": t['trip_date'] if t.get("trip_date") else "N/A",
+                "pickups": pickup_list,
+                "details": t.get("details") or ""
+            }
+            trips_list.append(trip_dict)
 
-    # 3) FALLBACK: OpenAI grounded on catalog
+        return jsonify({"trips": trips_list, "lang": lang})
+
+    # 🔹 Step 5: Fallback OpenAI answer grounded on trips
     all_trips = fetch_all_trips()
     ai_reply = answer_with_openai(user_message, all_trips)
-    return jsonify({"reply": ai_reply})
+    return jsonify({"reply": ai_reply, "lang": lang})
+
 
 
 

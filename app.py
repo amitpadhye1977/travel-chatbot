@@ -324,20 +324,36 @@ def chat():
         return jsonify({"reply": reply, "lang": lang})
 
     # 2) TRIP SEARCH (keyword)
-    # Try DB search first; if results exist, answer directly.
-    trips_found = search_trips(user_message)
-    if trips_found:
-        trips_list = []
-        for t in trips_found:
-            trip_dict = {
-                "Trip Name": t['trip_name'],
-                "Cost": f"₹{t['cost']}",
-                "Duration": t['duration'],
-                "Date": t['trip_date'] if t.get("trip_date") else "N/A",
-                "Details": t['details']  # full details
-            }
-            trips_list.append(trip_dict)
-    return jsonify({"trips": trips_list, "lang": lang})
+# Try DB search first; if results exist, answer directly.
+trips_found = search_trips(user_message)
+if trips_found:
+    # Build structured list instead of plain text
+    trips_list = []
+    for t in trips_found:
+        trip_dict = {
+            "Trip Name": t['trip_name'],
+            "Cost": f"₹{t['cost']}",
+            "Duration": t['duration'],
+            "Date": t['trip_date'] if t.get("trip_date") else "N/A",
+            "Details": t['details']  # full details including pickup points if any
+        }
+        trips_list.append(trip_dict)
+    
+    # Optional: If you want a Markdown/plain text for quick chat display
+    reply_lines = []
+    for t in trips_list:
+        line = (
+            f"• {t['Trip Name']} — {t['Cost']} | {t['Duration']} | Date: {t['Date']}\n"
+            f"   {t['Details']}"
+        )
+        reply_lines.append(line)
+    
+    return jsonify({
+        "reply": "Here’s what I found:\n" + "\n\n".join(reply_lines),
+        "trips": trips_list,  # structured data for frontend table rendering
+        "lang": lang
+    })
+
 
     # 3) FALLBACK: OpenAI grounded on catalog
     all_trips = fetch_all_trips()

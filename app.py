@@ -207,7 +207,6 @@ def answer_with_openai(user_message, trips):
     system_prompt = (
         "You are a helpful travel assistant for Ashtavinayak Trips organised by Ashtavinayak Dot Net. Detected language: {lang}"
         "Answer smartly and like a customer support executive using the provided trips catalog. Detected language: {lang} "
-        "If reviews of Hotel Suresh Inn or Hotel Jayshree Executive is asked by user, search for the hotel name in google reviews and share clickable link in chatbox "
         "If something isn't in the catalog, answer relevant information about Ashtavinayak Tour and Ashtavinayak Dot Net company. If any question related to Ashtavinayak Dot Net Travels as a company and its owner name, mobile, email needs to be fetched from www.ashtavinayak.net website and displayed exactly as fetched. Detected language: {lang} "
         "If unsure, say Please check the official website www.ashtavinayak.net for the latest details. Detected language: {lang}"
     )
@@ -324,36 +323,20 @@ def chat():
         return jsonify({"reply": reply, "lang": lang})
 
     # 2) TRIP SEARCH (keyword)
-# Try DB search first; if results exist, answer directly.
-trips_found = search_trips(user_message)
-if trips_found:
-    # Build structured list instead of plain text
-    trips_list = []
-    for t in trips_found:
-        trip_dict = {
-            "Trip Name": t['trip_name'],
-            "Cost": f"₹{t['cost']}",
-            "Duration": t['duration'],
-            "Date": t['trip_date'] if t.get("trip_date") else "N/A",
-            "Details": t['details']  # full details including pickup points if any
-        }
-        trips_list.append(trip_dict)
-    
-    # Optional: If you want a Markdown/plain text for quick chat display
-    reply_lines = []
-    for t in trips_list:
-        line = (
-            f"• {t['Trip Name']} — {t['Cost']} | {t['Duration']} | Date: {t['Date']}\n"
-            f"   {t['Details']}"
-        )
-        reply_lines.append(line)
-    
-    return jsonify({
-        "reply": "Here’s what I found:\n" + "\n\n".join(reply_lines),
-        "trips": trips_list,  # structured data for frontend table rendering
-        "lang": lang
-    })
-
+    # Try DB search first; if results exist, answer directly.
+    trips_found = search_trips(user_message)
+    if trips_found:
+        lines = []
+        for t in trips_found:
+            line = f"• {t['trip_name']} — ₹{t['cost']} | {t['duration']}"
+            if t.get("trip_date") is not None:
+                line += f" | Date: {t['trip_date']}"
+            # Add a short snippet from details
+            if t.get("details"):
+                snippet = (t["details"][:120] + "…") if len(t["details"]) > 120 else t["details"]
+                line += f"\n   {snippet}"
+            lines.append(line)
+        return jsonify({"reply": "Here’s what I found:\n" + "\n".join(lines), "lang": lang})
 
     # 3) FALLBACK: OpenAI grounded on catalog
     all_trips = fetch_all_trips()

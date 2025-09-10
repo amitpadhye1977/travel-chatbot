@@ -8,6 +8,16 @@ from flask_cors import CORS
 import mysql.connector
 from openai import OpenAI
 
+from langdetect import detect, DetectorFactory
+DetectorFactory.seed = 0  # for consistent detection
+
+def detect_language(text):
+    try:
+        lang = detect(text)   # returns 'en', 'hi', etc.
+        return lang
+    except:
+        return "unknown"
+
 # -------------------- Flask & CORS --------------------
 app = Flask(__name__)
 

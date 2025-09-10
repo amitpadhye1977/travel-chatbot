@@ -3,13 +3,14 @@ import re
 import math
 import json
 import requests
+from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import mysql.connector
 from openai import OpenAI
-
 from langdetect import detect, DetectorFactory
-DetectorFactory.seed = 0  # for consistent detection
+DetectorFactory.seed = 0  # to keep detection consistent
+
 
 # -------------------- Flask & CORS --------------------
 app = Flask(__name__)
@@ -31,6 +32,34 @@ def get_db_connection():
         password=password,
         database=os.getenv("DB_NAME"),
     )
+
+def get_contact_info():
+    try:
+        URL = "https://ashtavinayak.net/contactus.php"
+        page = requests.get(URL, timeout=10)
+        soup = BeautifulSoup(page.text, "html.parser")
+
+        phone = soup.find("a", href=lambda x: x and "tel:" in x)
+        email = soup.find("a", href=lambda x: x and "mailto:" in x)
+        
+        # If address is inside a div with class "contact-address"
+        address_div = soup.find("div", class_="col_1_3")
+        address = address_div.get_text(strip=True) if address_div else "Address not found"    
+    
+        return {
+            "phone": phone,
+            "email": email,
+            "address": address,
+            "website": URL
+        }
+    except Exception as e:
+        return {
+            "phone": "Not available",
+            "email": "Not available",
+            "address": "Not available",
+            "website": URL
+        }
+
 
 # --- Fetch Trips ---
 @app.route("/trips", methods=["GET"])
@@ -55,6 +84,14 @@ def get_trips():
 
 
 # -------------------- Helpers: Trips --------------------
+
+def detect_language(text):
+    try:
+        lang = detect(text)   # returns like 'en', 'hi', 'mr'
+        return lang
+    except:
+        return "unknown"
+
 def fetch_all_trips():
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
@@ -168,15 +205,15 @@ def answer_with_openai(user_message, trips):
     ]) or "No trips available."
 
     system_prompt = (
-        "You are a helpful travel assistant for Ashtavinayak Trips organised by Ashtavinayak Dot Net. "
-        "Answer strictly using the provided trips catalog. "
-        "If something isn't in the catalog, answer relevant information about Ashtavinayak Tour and Ashtavinayak Dot Net company. If any question related to Ashtavinayak Dot Net Travels as a company and its owner name, mobile, email needs to be fetched from www.ashtavinayak.net website and displayed exactly as fetched "
-        "If unsure, say Please check the official website www.ashtavinayak.net for the latest details."
+        "You are a helpful travel assistant for Ashtavinayak Trips organised by Ashtavinayak Dot Net. Detected language: {lang}"
+        "Answer smartly and like a customer support executive using the provided trips catalog. Detected language: {lang} "
+        "If something isn't in the catalog, answer relevant information about Ashtavinayak Tour and Ashtavinayak Dot Net company. If any question related to Ashtavinayak Dot Net Travels as a company and its owner name, mobile, email needs to be fetched from www.ashtavinayak.net website and displayed exactly as fetched. Detected language: {lang} "
+        "If unsure, say Please check the official website www.ashtavinayak.net for the latest details. Detected language: {lang}"
     )
     user_prompt = (
         f"Trips catalog:\n{catalog}\n\n"
         f"User ask: {user_message}\n\n"
-        "Reply clearly with bullet points; include trip names, cost, duration, and date when relevant."
+        "Reply smartly and clearly with relevance along with bullet points. Detected language: {lang}"
     )
 
     try:
@@ -199,58 +236,51 @@ def answer_with_openai(user_message, trips):
 def health():
     return jsonify({"ok": True, "service": "ashtavinayak-chatbot"})
 
-# -------------------- Language detection --------------------
-from langdetect import detect, DetectorFactory
-DetectorFactory.seed = 0  # for consistent detection
-
-def detect_language(text):
-    try:
-        return detect(text)   # returns 'en', 'hi', etc.
-    except:
-        return "unknown"
-
-# -------------------- Chat Route --------------------
 @app.route("/chat", methods=["POST", "OPTIONS"])
 def chat():
     if request.method == "OPTIONS":
+        # Handled by flask-cors, but returning ok explicitly is fine
         return ("", 204)
 
     data = request.get_json(silent=True) or {}
     user_message = (data.get("message") or "").strip()
+
+     # 🔹 Step 1: Detect language
+    lang = detect_language(user_message)
+    print(f"Detected Language: {lang}")
+    
     body_lat = data.get("lat")
     body_lng = data.get("lng")
 
-    lang = detect_language(user_message)
-    print(f"User message: {user_message}, Detected lang: {lang}")
+    if any(word in user_message for word in ["contact", "phone", "email", "office", "address"]):
+        contact_info = get_contact_info()
+        return jsonify({
+            "type": "contact",
+            "data": f"You can contact Ashtavinayak Dot Net at 📞 {contact_info['phone']}, ✉️ {contact_info['email']}. "
+                    f"Our office: {contact_info['address']}. More info: {contact_info['website']}"
+        })
+    
 
     if not user_message:
         return jsonify({"reply": "Please type your question.", "lang": lang})
 
-    # ------------------ Contact info ------------------
-    if any(word in user_message.lower() for word in ["contact", "phone", "email", "office", "address"]):
-        contact_info = get_contact_info()
-        return jsonify({
-            "reply": f"You can contact Ashtavinayak Dot Net at 📞 {contact_info['phone']}, "
-                     f"✉️ {contact_info['email']}. Our office: {contact_info['address']}. "
-                     f"More info: {contact_info['website']}",
-            "lang": lang
-        })
-
-    # ------------------ Pickup intent ------------------
+    # 1) PICKUP INTENT
     pickup_intent = any(kw in user_message.lower() for kw in [
-        "nearest pickup", "pickup near", "pickup nearby", "closest pickup",
-        "pickup point", "pickup point near", "pickup point nearby"
+        "nearest pickup", "pickup near", "pickup nearby", "closest pickup", "pickup point", "pickup point near", "pickup point nearby"
     ])
-
     if pickup_intent:
+        # Find coordinates:
+        # a) explicit lat,lng in message
         coords = extract_coords(user_message)
+        # b) JSON body lat/lng from browser geolocation
         if not coords and body_lat is not None and body_lng is not None:
             try:
                 coords = (float(body_lat), float(body_lng))
             except:
                 coords = None
-
+        # c) fallback: try to geocode place name after "from"/"near"
         if not coords:
+            # Try to pull a phrase after 'from' or 'near'
             place = None
             parts = re.split(r"\bfrom\b|\bnear\b|\bnearby\b", user_message, flags=re.IGNORECASE)
             if len(parts) > 1:
@@ -261,11 +291,9 @@ def chat():
                     coords = (g[0], g[1])
 
         if not coords:
-            return jsonify({
-                "reply": "Please share a location (e.g., 'nearest pickup from Borivali' or 'nearest pickup from 19.22,72.85').",
-                "lang": lang
-            })
+            return jsonify({"reply": "Please share a location (e.g., 'nearest pickup from Borivali' or 'nearest pickup from 19.22,72.85').", "lang": lang})
 
+        # If user mentioned a specific trip, filter pickup points by that trip_id
         all_trips = fetch_all_trips()
         maybe_trip_id = detect_trip_in_text(user_message, all_trips)
         points = fetch_pickup_points(maybe_trip_id)
@@ -273,6 +301,7 @@ def chat():
         if not points:
             return jsonify({"reply": "No pickup points found.", "lang": lang})
 
+        # Choose nearest
         lat0, lon0 = coords
         best = None
         best_d = 1e12
@@ -289,36 +318,34 @@ def chat():
             return jsonify({"reply": "No valid pickup coordinates found.", "lang": lang})
 
         trip_name = best.get("trip_name") or "the trip"
-        reply = f"Nearest pickup point: {best['pickup_point']} for '{trip_name}' — approx {round(best_d,2)} km away."
+        reply = (f"Nearest pickup point: {best['pickup_point']} "
+                 f"for '{trip_name}' — approx {round(best_d, 2)} km away.")
         return jsonify({"reply": reply, "lang": lang})
 
-    # ------------------ Trip keyword search ------------------
+    # 2) TRIP SEARCH (keyword)
+    # Try DB search first; if results exist, answer directly.
     trips_found = search_trips(user_message)
-    trips_list = []
-    for t in trips_found:
-        pickups = fetch_pickup_points(trip_id=t['id'])
-        pickup_list = [{"place": p['pickup_point'], "time": p.get('pickup_time', '')} for p in pickups]
-        trips_list.append({
-            "name": t['trip_name'],
-            "cost": f"₹{t['cost']}",
-            "duration": t['duration'],
-            "date": t.get('trip_date') or "N/A",
-            "pickups": pickup_list,
-            "details": t.get("details") or ""
-        })
+    if trips_found:
+        lines = []
+        for t in trips_found:
+            line = f"• {t['trip_name']} — ₹{t['cost']} | {t['duration']}"
+            if t.get("trip_date") is not None:
+                line += f" | Date: {t['trip_date']}"
+            # Add a short snippet from details
+            if t.get("details"):
+                snippet = (t["details"][:120] + "…") if len(t["details"]) > 120 else t["details"]
+                line += f"\n   {snippet}"
+            lines.append(line)
+        return jsonify({"reply": "Here’s what I found:\n" + "\n".join(lines), "lang": lang})
 
-    if trips_list:
-        return jsonify({"trips": trips_list, "lang": lang})
-
-    # ------------------ Fallback OpenAI ------------------
+    # 3) FALLBACK: OpenAI grounded on catalog
     all_trips = fetch_all_trips()
     ai_reply = answer_with_openai(user_message, all_trips)
-    if not ai_reply:
-        ai_reply = "Sorry, I couldn't find an answer. Please check www.ashtavinayak.net"
     return jsonify({"reply": ai_reply, "lang": lang})
 
-
-
+@app.route("/contact", methods=["GET"])
+def contact():
+    return jsonify(get_contact_info())
 
 # -------------------- Gunicorn entry --------------------
 if __name__ == "__main__":

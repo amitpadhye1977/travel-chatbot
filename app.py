@@ -1,346 +1,303 @@
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import os
 import re
 import math
-import json
+import mysql.connector
+from mysql.connector import pooling
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS
-import mysql.connector
-from openai import OpenAI
-from langdetect import detect, DetectorFactory
-DetectorFactory.seed = 0  # to keep detection consistent
 
+# Optional google maps client
+try:
+    import googlemaps
+    HAS_GMAPS = True
+except Exception:
+    HAS_GMAPS = False
 
-# -------------------- Flask & CORS --------------------
+# ---------------------- Configuration ----------------------
+DB_HOST = os.getenv('DB_HOST', 'your-db-host')
+DB_USER = os.getenv('DB_USER', 'your-db-user')
+DB_PASSWORD = os.getenv('DB_PASSWORD', 'your-db-password')
+DB_NAME = os.getenv('DB_NAME', 'your-db-name')
+GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '')
+ASHTA_BASE = os.getenv('ASHTA_BASE', 'https://www.ashtavinayak.net')
+
+# ---------------------- App Init ---------------------------
 app = Flask(__name__)
+CORS(app)
 
-# Allow both apex and www on your domain
-CORS(app, resources={r"/*": {"origins": ["https://ashtavinayak.net"]}})
+# ---------------------- DB Service -------------------------
+# Using a simple connection pool
+cnxpool = None
 
-
-# -------------------- OpenAI --------------------
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-# -------------------- MySQL --------------------
-def get_db_connection():
-    """Connect to MySQL using Render env vars. Supports DB_PASS or DB_PASSWORD."""
-    password = os.getenv("DB_PASSWORD", os.getenv("DB_PASS"))
-    return mysql.connector.connect(
-        host=os.getenv("DB_HOST"),
-        user=os.getenv("DB_USER"),
-        password=password,
-        database=os.getenv("DB_NAME"),
-    )
-
-def get_contact_info():
-    try:
-        URL = "https://ashtavinayak.net/contactus.php"
-        page = requests.get(URL, timeout=10)
-        soup = BeautifulSoup(page.text, "html.parser")
-
-        phone = soup.find("a", href=lambda x: x and "tel:" in x)
-        email = soup.find("a", href=lambda x: x and "mailto:" in x)
-        
-        # If address is inside a div with class "contact-address"
-        address_div = soup.find("div", class_="col_1_3")
-        address = address_div.get_text(strip=True) if address_div else "Address not found"    
-    
-        return {
-            "phone": phone,
-            "email": email,
-            "address": address,
-            "website": URL
-        }
-    except Exception as e:
-        return {
-            "phone": "Not available",
-            "email": "Not available",
-            "address": "Not available",
-            "website": URL
-        }
-
-
-# --- Fetch Trips ---
-@app.route("/trips", methods=["GET"])
-def get_trips():
-    try:
-        conn = mysql.connector.connect(
-            host=os.getenv("DB_HOST"),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASSWORD"),
-            database=os.getenv("DB_NAME")
+def init_db_pool():
+    global cnxpool
+    if cnxpool is None:
+        cnxpool = mysql.connector.pooling.MySQLConnectionPool(
+            pool_name="trip_pool",
+            pool_size=5,
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
+            charset='utf8mb4'
         )
-        cursor = conn.cursor()
-        cursor.execute("SELECT trip_name FROM trips Group By trip_name")
-        trips = [row[0] for row in cursor.fetchall()]
-        cursor.close()
-        conn.close()
-        return jsonify({"trips": trips})  # wrap inside "trips"
-    except Exception as e:
-        print("Error fetching trips:", e)  # log for debugging
-        return jsonify({"error": str(e)}), 500
 
+def get_conn():
+    init_db_pool()
+    return cnxpool.get_connection()
 
+# ---------------------- Helpers ----------------------------
+def rows_to_table(rows, cols):
+    """Return rows as list of dicts"""
+    return [dict(zip(cols, r)) for r in rows]
 
-# -------------------- Helpers: Trips --------------------
-
-def detect_language(text):
-    try:
-        lang = detect(text)   # returns like 'en', 'hi', 'mr'
-        return lang
-    except:
-        return "unknown"
-
-def fetch_all_trips():
-    conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
-    cur.execute("SELECT id, trip_name, details, cost, duration, trip_date FROM trips Group By trip_name")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
-
-def search_trips(keyword):
-    """Keyword search over trips."""
-    like = f"%{keyword}%"
-    conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
-    query = """
-        SELECT id, trip_name, details, cost, duration, trip_date
-        FROM trips
-        WHERE trip_name LIKE %s OR details LIKE %s OR duration LIKE %s
-           OR CAST(cost AS CHAR) LIKE %s OR CAST(trip_date AS CHAR) LIKE %s
-        ORDER BY trip_date IS NULL, trip_date ASC, trip_name ASC
-        LIMIT 20
-    """
-    cur.execute(query, (like, like, like, like, like))
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
-
-# -------------------- Helpers: Pickup points --------------------
-def fetch_pickup_points(trip_id=None):
-    conn = get_db_connection()
-    cur = conn.cursor(dictionary=True)
-    if trip_id:
-        cur.execute("""
-            SELECT p.id, p.trip_id, p.pickup_point, p.pickup_lat, p.pickup_lon, t.trip_name
-            FROM pickuppoints p
-            JOIN trips t ON t.id = p.trip_id
-            WHERE p.trip_id = %s
-        """, (trip_id,))
-    else:
-        cur.execute("""
-            SELECT p.id, p.trip_id, p.pickup_point, p.pickup_lat, p.pickup_lon, t.trip_name
-            FROM pickuppoints p
-            JOIN trips t ON t.id = p.trip_id
-        """)
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
-
-def haversine_km(lat1, lon1, lat2, lon2):
+# Haversine distance (km)
+def haversine(lat1, lon1, lat2, lon2):
     R = 6371.0
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = (math.sin(dlat/2)**2 +
-         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
-         math.sin(dlon/2)**2)
-    c = 2 * math.asin(math.sqrt(a))
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2.0)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2.0)**2
+    c = 2*math.atan2(math.sqrt(a), math.sqrt(1-a))
     return R * c
 
-# -------------------- Geocoding via Google API --------------------
-def geocode_place(place_name):
-    """Return (lat, lon, formatted_address) or None."""
-    api_key = os.getenv("GOOGLE_MAPS_API_KEY")
-    if not api_key:
-        return None
-    url = "https://maps.googleapis.com/maps/api/geocode/json"
-    params = {"address": place_name, "key": api_key}
-    try:
-        resp = requests.get(url, params=params, timeout=10)
-        data = resp.json()
-        if data.get("status") == "OK" and data.get("results"):
-            r = data["results"][0]
-            loc = r["geometry"]["location"]
-            return (loc["lat"], loc["lng"], r.get("formatted_address", place_name))
-    except Exception as e:
-        print("Geocode error:", e)
-    return None
+# ---------------------- Trip / Pickup queries --------------
+@app.route('/trips', methods=['GET'])
+def api_trips():
+    """Return all trips for dropdown"""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT trip_name, cost, duration, details, trip_date, contact FROM TRIPs")
+    rows = cur.fetchall()
+    cols = [d[0] for d in cur.description]
+    cur.close(); conn.close()
+    return jsonify({'ok': True, 'trips': rows_to_table(rows, cols)})
 
-# -------------------- Intent parsing --------------------
-COORDS_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)")
+@app.route('/trip', methods=['GET'])
+def api_trip_details():
+    name = request.args.get('name')
+    if not name:
+        return jsonify({'ok': False, 'error': 'missing name parameter'}), 400
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT trip_name, cost, duration, details, trip_date, contact FROM TRIPs WHERE trip_name = %s", (name,))
+    rows = cur.fetchall()
+    cols = [d[0] for d in cur.description]
+    cur.close(); conn.close()
+    return jsonify({'ok': True, 'trip': rows_to_table(rows, cols)})
 
-def extract_coords(text):
-    m = COORDS_RE.search(text or "")
-    if not m:
-        return None
-    try:
-        return float(m.group(1)), float(m.group(2))
-    except:
-        return None
-
-def detect_trip_in_text(text, trips):
-    """Return trip_id if a trip name is mentioned inside user text, else None."""
-    if not text:
-        return None
-    text_l = text.lower()
+@app.route('/pickups', methods=['GET'])
+def api_pickups_nearest():
+    lat = request.args.get('lat', type=float)
+    lng = request.args.get('lng', type=float)
+    trip_id = request.args.get('trip_id', type=int)
+    if lat is None or lng is None:
+        return jsonify({'ok': False, 'error': 'lat and lng parameters are required'}), 400
+    conn = get_conn()
+    cur = conn.cursor()
+    if trip_id:
+        cur.execute("SELECT trip_id, pickuppoint, address, pickup_lat, pickup_long FROM PICKUPPOINTS WHERE trip_id = %s", (trip_id,))
+    else:
+        cur.execute("SELECT trip_id, pickuppoint, address, pickup_lat, pickup_long FROM PICKUPPOINTS")
+    rows = cur.fetchall()
+    cols = [d[0] for d in cur.description]
+    cur.close(); conn.close()
+    # compute nearest
     best = None
-    for t in trips:
-        name = (t.get("trip_name") or "").lower()
-        if name and name in text_l:
-            best = t["id"]
-            break
-    return best
+    best_dist = float('inf')
+    for r in rows:
+        pr = dict(zip(cols, r))
+        try:
+            plat = float(pr.get('pickup_lat') or 0)
+            plong = float(pr.get('pickup_long') or 0)
+        except Exception:
+            continue
+        d = haversine(lat, lng, plat, plong)
+        pr['distance_km'] = round(d, 3)
+        if d < best_dist:
+            best_dist = d
+            best = pr
+    if best is None:
+        return jsonify({'ok': False, 'error': 'no pickup points found'}), 404
+    return jsonify({'ok': True, 'nearest': best})
 
-# -------------------- OpenAI answer grounded on trips --------------------
-def answer_with_openai(user_message, trips):
-    # Prepare a compact catalog for grounding
-    catalog = "\n".join([
-        f"- {t['trip_name']}: {t['details']} | Cost ₹{t['cost']}, Duration {t['duration']}, Date {t['trip_date']}"
-        for t in trips[:40]  # cap to keep prompt small
-    ]) or "No trips available."
+# ---------------------- Simple Scraper ---------------------
+class ScraperService:
+    def __init__(self, base_url=ASHTA_BASE, max_pages=20):
+        self.base = base_url.rstrip('/')
+        self.max_pages = max_pages
 
-    system_prompt = (
-        "You are a helpful travel assistant for Ashtavinayak Trips organised by Ashtavinayak Dot Net. Detected language: {lang}"
-        "Answer smartly and like a customer support executive using the provided trips catalog. Detected language: {lang} "
-        "If something isn't in the catalog, answer relevant information about Ashtavinayak Tour and Ashtavinayak Dot Net company. If any question related to Ashtavinayak Dot Net Travels as a company and its owner name, mobile, email needs to be fetched from www.ashtavinayak.net website and displayed exactly as fetched. Detected language: {lang} "
-        "If unsure, say Please check the official website www.ashtavinayak.net for the latest details. Detected language: {lang}"
-    )
-    user_prompt = (
-        f"Trips catalog:\n{catalog}\n\n"
-        f"User ask: {user_message}\n\n"
-        "Reply smartly and clearly with relevance along with bullet points. Detected language: {lang}"
-    )
-
-    try:
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.3,
-            max_tokens=400,
-        )
-        return resp.choices[0].message.content.strip()
-    except Exception as e:
-        print("OpenAI error:", e)
-        return "I couldn't generate an answer right now."
-
-# -------------------- Routes --------------------
-@app.route("/", methods=["GET", "HEAD", "OPTIONS"])
-def health():
-    return jsonify({"ok": True, "service": "ashtavinayak-chatbot"})
-
-@app.route("/chat", methods=["POST", "OPTIONS"])
-def chat():
-    if request.method == "OPTIONS":
-        return ("", 204)
-
-    data = request.get_json(silent=True) or {}
-    user_message = (data.get("message") or "").strip()
-    body_lat = data.get("lat")
-    body_lng = data.get("lng")
-
-    # ------------------ Contact intent ------------------
-    if any(word in user_message.lower() for word in ["contact", "phone", "email", "office", "address"]):
-        contact_info = get_contact_info()
-        return jsonify({
-            "type": "contact",
-            "data": f"You can contact Ashtavinayak Dot Net at 📞 {contact_info['phone']}, ✉️ {contact_info['email']}. "
-                    f"Our office: {contact_info['address']}. More info: {contact_info['website']}"
-        })
-
-    if not user_message:
-        return jsonify({"reply": "Please type your question."})
-
-    # ------------------ Pickup intent ------------------
-    pickup_keywords = ["nearest pickup", "pickup near", "pickup nearby", "closest pickup", "pickup point"]
-    pickup_intent = any(kw in user_message.lower() for kw in pickup_keywords)
-
-    if pickup_intent:
-        # Determine coordinates
-        coords = extract_coords(user_message)
-        if not coords and body_lat is not None and body_lng is not None:
-            try:
-                coords = (float(body_lat), float(body_lng))
-            except:
-                coords = None
-
-        if not coords:
-            # Try geocoding a place name after 'from' or 'near'
-            place = None
-            parts = re.split(r"\bfrom\b|\bnear\b|\bnearby\b", user_message, flags=re.IGNORECASE)
-            if len(parts) > 1:
-                place = parts[-1].strip(" .,:;")
-            if place:
-                g = geocode_place(place)
-                if g:
-                    coords = (g[0], g[1])
-
-        if not coords:
-            return jsonify({"reply": "Please share a location (e.g., 'nearest pickup from Borivali' or 'nearest pickup from 19.22,72.85')."})
-
-        # Check if user mentioned a specific trip
-        all_trips = fetch_all_trips()
-        maybe_trip_id = detect_trip_in_text(user_message, all_trips)
-        points = fetch_pickup_points(maybe_trip_id)
-
-        if not points:
-            return jsonify({"reply": "No pickup points found."})
-
-        lat0, lon0 = coords
-        nearest_list = []
-        for p in points:
-            try:
-                d = haversine_km(float(p["pickup_lat"]), float(p["pickup_lon"]), lat0, lon0)
-                nearest_list.append({
-                    "place": p["pickup_point"],
-                    "address": p.get("address", ""),
-                    "trip": p.get("trip_name", ""),
-                    "distance": round(d, 2)
-                })
-            except:
+    def crawl_pages(self):
+        to_visit = [self.base]
+        visited = set()
+        pages = []
+        while to_visit and len(visited) < self.max_pages:
+            url = to_visit.pop(0)
+            if url in visited:
                 continue
+            try:
+                r = requests.get(url, timeout=8)
+                if r.status_code != 200:
+                    visited.add(url)
+                    continue
+                visited.add(url)
+                soup = BeautifulSoup(r.text, 'html.parser')
+                pages.append({'url': url, 'title': soup.title.string if soup.title else '', 'text': soup.get_text(separator=' ', strip=True)})
+                for a in soup.find_all('a', href=True):
+                    href = a['href']
+                    if href.startswith('/'):
+                        full = self.base + href
+                    elif href.startswith(self.base):
+                        full = href
+                    else:
+                        continue
+                    if full not in visited and full not in to_visit:
+                        to_visit.append(full)
+            except Exception:
+                visited.add(url)
+                continue
+        return pages
 
-        nearest_list.sort(key=lambda x: x["distance"])
-        return jsonify({"nearest": nearest_list[:5]})
+    def search(self, query):
+        pages = self.crawl_pages()
+        q = query.lower()
+        results = []
+        for p in pages:
+            text = p.get('text','').lower()
+            if q in text:
+                idx = text.find(q)
+                start = max(0, idx-200)
+                end = min(len(text), idx+200)
+                snippet = p.get('text','')[start:end]
+                results.append({'url': p['url'], 'title': p['title'], 'snippet': snippet})
+        return results
 
-    # ------------------ Trip search intent ------------------
-    trips_found = search_trips(user_message)
-    if trips_found:
-        trips_json = []
-        for t in trips_found:
-            # Include pickup points for this trip
-            pickups = fetch_pickup_points(t["id"])
-            pickups_json = [{"place": p["pickup_point"], "address": p.get("address", "")} for p in pickups]
+scraper = ScraperService()
 
-            trips_json.append({
-                "name": t["trip_name"],
-                "details": t.get("details", ""),
-                "cost": str(t.get("cost", "")),
-                "duration": t.get("duration", ""),
-                "departure": str(t.get("trip_date", "")),
-                "contact": t.get("contact", ""),
-                "pickups": pickups_json
-            })
-        return jsonify({"trips": trips_json})
+# ---------------------- Hotel Service -----------------------
+class HotelService:
+    def __init__(self, gmaps_api_key=''):
+        self.key = gmaps_api_key
+        if HAS_GMAPS and self.key:
+            self.client = googlemaps.Client(key=self.key)
+        else:
+            self.client = None
 
-    # ------------------ Fallback to OpenAI ------------------
-    all_trips = fetch_all_trips()
-    ai_reply = answer_with_openai(user_message, all_trips)
-    return jsonify({"reply": ai_reply})
+    def extract_hotel_names(self, text):
+        hotels = []
+        for m in re.finditer(r'([A-Z][\w\s,&-]{1,60}Hotel|Hotel\s+[A-Z][\w\s,&-]{1,60})', text):
+            hotels.append(m.group(0).strip())
+        return list(dict.fromkeys(hotels))
 
+    def lookup_hotel(self, hotel_name, location=None):
+        if self.client:
+            try:
+                res = self.client.places(query=hotel_name)
+                if res.get('results'):
+                    r0 = res['results'][0]
+                    info = {
+                        'name': r0.get('name'),
+                        'address': r0.get('formatted_address') if 'formatted_address' in r0 else r0.get('vicinity'),
+                        'place_id': r0.get('place_id'),
+                        'rating': r0.get('rating'),
+                        'user_ratings_total': r0.get('user_ratings_total'),
+                    }
+                    try:
+                        det = self.client.place(r0['place_id'])
+                        pd = det.get('result', {})
+                        info['website'] = pd.get('website')
+                        info['photos'] = []
+                        for ph in pd.get('photos', [])[:3]:
+                            info['photos'].append({'photo_reference': ph.get('photo_reference')})
+                        info['reviews'] = pd.get('reviews', [])[:3]
+                    except Exception:
+                        pass
+                    return info
+            except Exception:
+                pass
+        return {'name': hotel_name, 'search': f'https://www.google.com/search?q={requests.utils.quote(hotel_name)}'}
 
-@app.route("/contact", methods=["GET"])
-def contact():
-    return jsonify(get_contact_info())
+hotel_service = HotelService(GOOGLE_MAPS_API_KEY)
 
-# -------------------- Gunicorn entry --------------------
-if __name__ == "__main__":
-    # Local run; Render uses gunicorn
-    app.run(host="0.0.0.0", port=5000)
+# ---------------------- Chat Endpoint ----------------------
+@app.route('/chat', methods=['POST'])
+def api_chat():
+    data = request.get_json(force=True)
+    q = (data.get('q') or '').strip()
+    lat = data.get('lat')
+    lng = data.get('lng')
+    lang = data.get('lang', 'en')
+
+    if not q:
+        return jsonify({'ok': False, 'error': 'empty query'}), 400
+
+    if any(k in q.lower() for k in ['pickup', 'pick up', 'nearby', 'nearest', 'pickup point']):
+        if lat is None or lng is None:
+            if HAS_GMAPS and GOOGLE_MAPS_API_KEY:
+                try:
+                    gm = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
+                    ge = gm.geocode(q)
+                    if ge:
+                        loc = ge[0]['geometry']['location']
+                        lat = loc['lat']; lng = loc['lng']
+                except Exception:
+                    pass
+        if lat is None or lng is None:
+            return jsonify({'ok': False, 'error': 'latitude & longitude required for pickup nearest query'}), 400
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT trip_id, pickuppoint, address, pickup_lat, pickup_long FROM PICKUPPOINTS")
+            rows = cur.fetchall()
+            cols = [d[0] for d in cur.description]
+            cur.close()
+        best = None; best_dist = float('inf')
+        for r in rows:
+            pr = dict(zip(cols, r))
+            try:
+                plat = float(pr.get('pickup_lat') or 0); plong = float(pr.get('pickup_long') or 0)
+            except Exception:
+                continue
+            d = haversine(lat, lng, plat, plong)
+            pr['distance_km'] = round(d,3)
+            if d < best_dist:
+                best_dist = d; best = pr
+        if best:
+            return jsonify({'ok': True, 'type': 'pickup_nearest', 'nearest': best})
+        else:
+            return jsonify({'ok': False, 'error': 'no pickup points found'}), 404
+
+    keywords = q.split()
+    like_clause = '%' + '%'.join(keywords) + '%'
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT trip_name, cost, duration, details, trip_date, contact FROM TRIPs WHERE trip_name LIKE %s OR details LIKE %s", (like_clause, like_clause))
+    rows = cur.fetchall()
+    cols = [d[0] for d in cur.description]
+    cur.close(); conn.close()
+    if rows:
+        trips = rows_to_table(rows, cols)
+        for t in trips:
+            hotels = hotel_service.extract_hotel_names(t.get('details','') or '')
+            if hotels:
+                t['hotels'] = []
+                for h in hotels:
+                    t['hotels'].append(hotel_service.lookup_hotel(h))
+        return jsonify({'ok': True, 'type': 'trips_found', 'trips': trips})
+
+    results = scraper.search(q)
+    if results:
+        return jsonify({'ok': True, 'type': 'scraped', 'results': results})
+
+    return jsonify({'ok': False, 'error': 'no information found for query'}), 404
+
+# ---------------------- Main -------------------------------
+if __name__ == '__main__':
+    try:
+        init_db_pool()
+        print('DB pool initialized')
+    except Exception as e:
+        print('Warning: DB pool init failed -', e)
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))

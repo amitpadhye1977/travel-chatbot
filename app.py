@@ -1,3 +1,25 @@
+"""
+Comprehensive single-file Flask backend for Trip Chatbot
+- Contains DBService, ScraperService, HotelService (Google Places optional)
+- Integrates OpenAI for fallback answers
+
+Endpoints:
+  - GET /trips                -> returns list of trips (for dropdown)
+  - GET /trip                 -> returns trip details by name (query param: name)
+  - GET /pickups              -> returns nearest pickup to lat & lng (query params: lat,lng)
+  - POST /chat                -> main chat endpoint
+
+CONFIG: set environment variables:
+  DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
+  GOOGLE_MAPS_API_KEY (optional)
+  OPENAI_API_KEY (required for OpenAI fallback)
+
+Run locally for testing:
+  FLASK_APP=app.py FLASK_ENV=development flask run
+
+Deploy on Render.com: push repo, add environment variables, and use Gunicorn.
+"""
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
@@ -15,6 +37,13 @@ try:
 except Exception:
     HAS_GMAPS = False
 
+# OpenAI client
+try:
+    from openai import OpenAI
+    HAS_OPENAI = True
+except Exception:
+    HAS_OPENAI = False
+
 # ---------------------- Configuration ----------------------
 DB_HOST = os.getenv('DB_HOST', 'your-db-host')
 DB_USER = os.getenv('DB_USER', 'your-db-user')
@@ -22,13 +51,17 @@ DB_PASSWORD = os.getenv('DB_PASSWORD', 'your-db-password')
 DB_NAME = os.getenv('DB_NAME', 'your-db-name')
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '')
 ASHTA_BASE = os.getenv('ASHTA_BASE', 'https://www.ashtavinayak.net')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+
+openai_client = None
+if HAS_OPENAI and OPENAI_API_KEY:
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ---------------------- App Init ---------------------------
 app = Flask(__name__)
 CORS(app)
 
 # ---------------------- DB Service -------------------------
-# Using a simple connection pool
 cnxpool = None
 
 def init_db_pool():
@@ -50,10 +83,8 @@ def get_conn():
 
 # ---------------------- Helpers ----------------------------
 def rows_to_table(rows, cols):
-    """Return rows as list of dicts"""
     return [dict(zip(cols, r)) for r in rows]
 
-# Haversine distance (km)
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371.0
     phi1 = math.radians(lat1)
@@ -64,10 +95,9 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2*math.atan2(math.sqrt(a), math.sqrt(1-a))
     return R * c
 
-# ---------------------- Trip / Pickup queries --------------
+# ---------------------- Trip / Pickup ----------------------
 @app.route('/trips', methods=['GET'])
 def api_trips():
-    """Return all trips for dropdown"""
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT trip_name, cost, duration, details, trip_date, contact FROM TRIPs")
@@ -105,9 +135,7 @@ def api_pickups_nearest():
     rows = cur.fetchall()
     cols = [d[0] for d in cur.description]
     cur.close(); conn.close()
-    # compute nearest
-    best = None
-    best_dist = float('inf')
+    best = None; best_dist = float('inf')
     for r in rows:
         pr = dict(zip(cols, r))
         try:
@@ -118,13 +146,12 @@ def api_pickups_nearest():
         d = haversine(lat, lng, plat, plong)
         pr['distance_km'] = round(d, 3)
         if d < best_dist:
-            best_dist = d
-            best = pr
-    if best is None:
+            best_dist = d; best = pr
+    if not best:
         return jsonify({'ok': False, 'error': 'no pickup points found'}), 404
     return jsonify({'ok': True, 'nearest': best})
 
-# ---------------------- Simple Scraper ---------------------
+# ---------------------- Scraper ----------------------------
 class ScraperService:
     def __init__(self, base_url=ASHTA_BASE, max_pages=20):
         self.base = base_url.rstrip('/')
@@ -234,6 +261,7 @@ def api_chat():
     if not q:
         return jsonify({'ok': False, 'error': 'empty query'}), 400
 
+    # Pickup queries
     if any(k in q.lower() for k in ['pickup', 'pick up', 'nearby', 'nearest', 'pickup point']):
         if lat is None or lng is None:
             if HAS_GMAPS and GOOGLE_MAPS_API_KEY:
@@ -269,6 +297,7 @@ def api_chat():
         else:
             return jsonify({'ok': False, 'error': 'no pickup points found'}), 404
 
+    # Trip DB search
     keywords = q.split()
     like_clause = '%' + '%'.join(keywords) + '%'
     conn = get_conn()
@@ -287,9 +316,25 @@ def api_chat():
                     t['hotels'].append(hotel_service.lookup_hotel(h))
         return jsonify({'ok': True, 'type': 'trips_found', 'trips': trips})
 
+    # Scraper fallback
     results = scraper.search(q)
     if results:
         return jsonify({'ok': True, 'type': 'scraped', 'results': results})
+
+    # OpenAI fallback
+    if openai_client:
+        try:
+            response = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a helpful trip assistant specialized in Ashtavinayak tours."},
+                    {"role": "user", "content": q}
+                ]
+            )
+            answer = response.choices[0].message.content
+            return jsonify({'ok': True, 'type': 'openai', 'answer': answer})
+        except Exception as e:
+            return jsonify({'ok': False, 'error': str(e)}), 500
 
     return jsonify({'ok': False, 'error': 'no information found for query'}), 404
 

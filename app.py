@@ -124,7 +124,6 @@ def trip_details(trip_name):
         if not trip:
             return jsonify({"ok": False, "error": f\"Trip '{trip_name}' not found\"}), 404
 
-        #-- return jsonify({"ok": True, "type": "trip_details", "trip": trip}) ---
         return jsonify({'ok': True, 'trip': rows_to_table(rows, cols)})
     except Exception as e:
         print("Trip details error:", e)

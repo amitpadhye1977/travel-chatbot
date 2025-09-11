@@ -45,13 +45,13 @@ except Exception:
     HAS_OPENAI = False
 
 # ---------------------- Configuration ----------------------
-DB_HOST = os.getenv('DB_HOST', 'your-db-host')
-DB_USER = os.getenv('DB_USER', 'your-db-user')
-DB_PASSWORD = os.getenv('DB_PASSWORD', 'your-db-password')
-DB_NAME = os.getenv('DB_NAME', 'your-db-name')
-GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY', '')
+DB_HOST = os.getenv('DB_HOST')
+DB_USER = os.getenv('DB_USER')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
+DB_NAME = os.getenv('DB_NAME')
+GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')
 ASHTA_BASE = os.getenv('ASHTA_BASE', 'https://www.ashtavinayak.net')
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 openai_client = None
 if HAS_OPENAI and OPENAI_API_KEY:
@@ -100,7 +100,7 @@ def haversine(lat1, lon1, lat2, lon2):
 def api_trips():
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT trip_name, cost, duration, details, trip_date, contact FROM TRIPs")
+    cur.execute("SELECT trip_name, cost, duration, details, trip_date, contact FROM trips")
     rows = cur.fetchall()
     cols = [d[0] for d in cur.description]
     cur.close(); conn.close()
@@ -113,7 +113,7 @@ def api_trip_details():
         return jsonify({'ok': False, 'error': 'missing name parameter'}), 400
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT trip_name, cost, duration, details, trip_date, contact FROM TRIPs WHERE trip_name = %s", (name,))
+    cur.execute("SELECT trip_name, cost, duration, details, trip_date, contact FROM trips WHERE trip_name = %s", (name,))
     rows = cur.fetchall()
     cols = [d[0] for d in cur.description]
     cur.close(); conn.close()
@@ -129,9 +129,9 @@ def api_pickups_nearest():
     conn = get_conn()
     cur = conn.cursor()
     if trip_id:
-        cur.execute("SELECT trip_id, pickuppoint, address, pickup_lat, pickup_long FROM PICKUPPOINTS WHERE trip_id = %s", (trip_id,))
+        cur.execute("SELECT trip_id, pickuppoint, address, pickup_lat, pickup_long FROM pickuppoints WHERE trip_id = %s", (trip_id,))
     else:
-        cur.execute("SELECT trip_id, pickuppoint, address, pickup_lat, pickup_long FROM PICKUPPOINTS")
+        cur.execute("SELECT trip_id, pickuppoint, address, pickup_lat, pickup_long FROM pickuppoints")
     rows = cur.fetchall()
     cols = [d[0] for d in cur.description]
     cur.close(); conn.close()
@@ -277,7 +277,7 @@ def api_chat():
             return jsonify({'ok': False, 'error': 'latitude & longitude required for pickup nearest query'}), 400
         with get_conn() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT trip_id, pickuppoint, address, pickup_lat, pickup_long FROM PICKUPPOINTS")
+            cur.execute("SELECT trip_id, pickuppoint, address, pickup_lat, pickup_long FROM pickuppoints")
             rows = cur.fetchall()
             cols = [d[0] for d in cur.description]
             cur.close()
@@ -302,7 +302,7 @@ def api_chat():
     like_clause = '%' + '%'.join(keywords) + '%'
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT trip_name, cost, duration, details, trip_date, contact FROM TRIPs WHERE trip_name LIKE %s OR details LIKE %s", (like_clause, like_clause))
+    cur.execute("SELECT trip_name, cost, duration, details, trip_date, contact FROM trips WHERE trip_name LIKE %s OR details LIKE %s", (like_clause, like_clause))
     rows = cur.fetchall()
     cols = [d[0] for d in cur.description]
     cur.close(); conn.close()

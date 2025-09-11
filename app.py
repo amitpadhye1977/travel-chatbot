@@ -106,18 +106,31 @@ def api_trips():
     cur.close(); conn.close()
     return jsonify({'ok': True, 'trips': rows_to_table(rows, cols)})
 
-@app.route('/trip', methods=['GET'])
-def api_trip_details():
-    name = request.args.get('name')
-    if not name:
-        return jsonify({'ok': False, 'error': 'missing name parameter'}), 400
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT trip_name, cost, duration, details, trip_date, contact FROM trips WHERE trip_name = %s", (name,))
-    rows = cur.fetchall()
-    cols = [d[0] for d in cur.description]
-    cur.close(); conn.close()
-    return jsonify({'ok': True, 'trip': rows_to_table(rows, cols)})
+@app.route("/trip/<string:trip_name>", methods=["GET"])
+def trip_details(trip_name):
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"ok": False, "error": "DB connection failed"}), 500
+
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT trip_name, duration, cost, details, trip_date, contact FROM TRIPs WHERE trip_name = %s",
+            (trip_name,)
+        )
+        trip = cursor.fetchone()
+        conn.close()
+
+        if not trip:
+            return jsonify({"ok": False, "error": f\"Trip '{trip_name}' not found\"}), 404
+
+        #-- return jsonify({"ok": True, "type": "trip_details", "trip": trip}) ---
+        return jsonify({'ok': True, 'trip': rows_to_table(rows, cols)})
+    except Exception as e:
+        print("Trip details error:", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    
 
 @app.route('/pickups', methods=['GET'])
 def api_pickups_nearest():

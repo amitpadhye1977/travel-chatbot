@@ -15,6 +15,16 @@ class ChatRequest(BaseModel):
     language: str = "en"
     state: str = ""
 
+from fastapi.responses import FileResponse
+
+@app.get("/download-knowledge")
+def download_knowledge():
+    return FileResponse(
+        path="knowledge.txt",
+        filename="knowledge.txt",
+        media_type="text/plain"
+    )
+
 @app.get("/")
 def home():
     return {

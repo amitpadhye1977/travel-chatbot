@@ -1,11 +1,2 @@
-googlemaps
-python-dotenv
-pymysql
-flask==3.0.3
-flask-cors==4.0.1
-mysql-connector-python==9.0.0
-requests==2.32.3
-openai>=1.30.0
-gunicorn==22.0.0
-beautifulsoup4
-langdetect
+fastapi==0.116.1
+uvicorn==0.35.0
